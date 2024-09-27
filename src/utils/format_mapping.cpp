@@ -35,6 +35,7 @@ static const std::unordered_map<uint32_t, std::string> map_format_raw = {
   {cam::SGRBG16.fourcc(), ros::BAYER_GRBG16},
   {cam::SGBRG16.fourcc(), ros::BAYER_GBRG16},
   {cam::SBGGR16.fourcc(), ros::BAYER_BGGR16},
+  {cam::SRGGB10_CSI2P.fourcc(), ros::BAYER_RGGB16},
 };
 
 // supported FourCC formats, without conversion, compressed
