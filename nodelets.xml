@@ -1,5 +1,0 @@
-<library path="lib/libLibcameraRosDriver_Driver">
-  <class name="libcamera_ros_driver/LibcameraRosDriver" type="libcamera_ros_driver::LibcameraRosDriver" base_class_type="nodelet::Nodelet">
-    <description>LibcameraRosDriver nodelet</description>
-  </class>
-</library>

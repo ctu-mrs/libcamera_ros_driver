@@ -1,40 +1,51 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20.0)
 project(libcamera_ros_driver)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CATKIN_DEPENDENCIES
+set(USE_ROS_TIMER 0)
+
+if(${USE_ROS_TIMER})
+  MESSAGE(WARNING "[libcamera_ros_driver]: Compiling with ROS Timers. This can cause high CPU load in runtime.")
+endif()
+
+# set the compile options to show code warnings
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra)
+endif()
+
+if(ENABLE_COVERAGE)
+  message(WARNING "building for coverage, the performance might be limited")
+
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs")
+
+  add_definitions("-O1")
+  add_definitions("-g")
+endif()
+
+set(DEPENDENCIES
+  ament_cmake
   camera_info_manager
-  cmake_modules
   image_transport
   libcamera_ros
-  nodelet
-  roscpp
+  rclcpp
+  rclcpp_components
   sensor_msgs
   std_msgs
-  )
+)
 
 set(LIBRARIES
   LibcameraRosDriver_Driver
-  )
+)
 
-find_package(catkin REQUIRED COMPONENTS
-  ${CATKIN_DEPENDENCIES}
-  )
+foreach(DEP IN LISTS DEPENDENCIES)
+  find_package(${DEP} REQUIRED)
+endforeach()
 
-catkin_package(
-  INCLUDE_DIRS include
-  LIBRARIES ${LIBRARIES}
-  CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
-  )
-
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  )
-
-add_library(LibcameraRosDriver_Driver
+add_library(LibcameraRosDriver_Driver SHARED
   src/libcamera_ros_driver.cpp
   src/utils/clamp.cpp
   src/utils/format_mapping.cpp
@@ -46,29 +57,49 @@ add_library(LibcameraRosDriver_Driver
   src/utils/pv_to_cv.cpp
 )
 
-add_dependencies(LibcameraRosDriver_Driver
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-  )
+target_include_directories(LibcameraRosDriver_Driver
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
 
-target_link_libraries(LibcameraRosDriver_Driver
-  ${catkin_LIBRARIES}
-  )
+target_compile_definitions(LibcameraRosDriver_Driver
+  PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER}
+)
+
+ament_target_dependencies(LibcameraRosDriver_Driver
+  ${DEPENDENCIES}
+)
+
+rclcpp_components_register_node(LibcameraRosDriver_Driver
+  PLUGIN "libcamera_ros_driver::LibcameraRosDriver"
+  EXECUTABLE LibcameraRosDriver_Driver_node
+)
 
 ## --------------------------------------------------------------
 ## |                           Install                          |
 ## --------------------------------------------------------------
 
-install(TARGETS ${LIBRARIES}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
-  )
+install(TARGETS ${LIBRARIES} EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
 
 install(DIRECTORY launch config
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-  )
+  DESTINATION share/${PROJECT_NAME}
+)
 
-install(FILES nodelets.xml
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-  )
+ament_export_libraries(
+  ${LIBRARIES}
+)
+
+ament_export_targets(
+  export_${PROJECT_NAME} HAS_LIBRARY_TARGET
+)
+
+ament_export_dependencies(
+  ${DEPENDENCIES}
+)
+
+ament_package()

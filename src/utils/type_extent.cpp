@@ -7,27 +7,24 @@
 #include <type_traits>
 
 
-template<typename T, std::enable_if_t<!libcamera::details::is_span<T>::value, bool> = true>
-std::size_t
-get_extent(const libcamera::Control<T> &)
+template <typename T, std::enable_if_t<!libcamera::details::is_span<T>::value, bool> = true>
+std::size_t get_extent(const libcamera::Control<T>&)
 {
   return 0;
 }
 
-template<typename T, std::enable_if_t<libcamera::details::is_span<T>::value, bool> = true>
-std::size_t
-get_extent(const libcamera::Control<T> &)
+template <typename T, std::enable_if_t<libcamera::details::is_span<T>::value, bool> = true>
+std::size_t get_extent(const libcamera::Control<T>&)
 {
   return libcamera::Control<T>::type::extent;
 }
 
-#define IF(T)                                                                                      \
-  if (id->id() == libcamera::controls::T.id())                                                     \
+#define IF(T)                                                                                                                                                  \
+  if (id->id() == libcamera::controls::T.id())                                                                                                                 \
     return get_extent(libcamera::controls::T);
 
 
-std::size_t
-get_extent(const libcamera::ControlId *id)
+std::size_t get_extent(const libcamera::ControlId* id)
 {
   IF(AeEnable)
   IF(AeLocked)
@@ -72,6 +69,5 @@ get_extent(const libcamera::ControlId *id)
   /* IF(HdrMode) */
   /* IF(HdrChannel) */
 
-  throw std::runtime_error("control " + id->name() + " (" + std::to_string(id->id()) +
-                           ") not handled");
+  throw std::runtime_error("control " + id->name() + " (" + std::to_string(id->id()) + ") not handled");
 }
