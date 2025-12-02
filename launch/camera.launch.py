@@ -80,7 +80,7 @@ def generate_launch_description():
         name='LIBCAMERA_IPA_MODULE_PATH',
         value=os.environ.get(
             'LIBCAMERA_IPA_MODULE_PATH',
-            '/opt/ros/jazzy/lib/libcamera/'
+            '/opt/ros/jazzy/lib/libcamera/ipa/'
             )
     ))
 
@@ -95,8 +95,6 @@ def generate_launch_description():
     # #} end of environment variables
 
     # #{ camera_name
-
-    camera_name = LaunchConfiguration('camera_name')
 
     ld.add_action(DeclareLaunchArgument(
         'camera_name',
@@ -184,12 +182,11 @@ def generate_launch_description():
         name='libcamera_ros_driver',
 
         parameters=[
+            this_pkg_path + '/config/default.yaml',
             {'uav_name': uav_name},
             {'use_sim_time': use_sim_time},
-            {'camera_name': camera_name},
             {'frame_id': frame_id},
             {'calib_url': calib_url},
-            {'public_config': this_pkg_path + '/config/default.yaml'},
             {'custom_config': custom_config},
         ],
 

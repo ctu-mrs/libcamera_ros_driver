@@ -50,7 +50,6 @@ namespace libcamera_ros_driver
   template <typename T>
   bool getOptionalParamCheck(const rclcpp::Node::SharedPtr& node, const std::string& param_name, T& param_out)
   {
-
     if (!node->get_parameter(param_name, param_out))
       return false;
 
@@ -62,21 +61,29 @@ namespace libcamera_ros_driver
   template <typename T>
   bool getCompulsoryParamCheck(const rclcpp::Node::SharedPtr& node, const std::string& param_name, T& param_out)
   {
+    if (!node->has_parameter(param_name))
+    {
+      try
+      {
+        node->declare_parameter<T>(param_name); // for Galactic and newer, the type has to be specified here
+      }
+      catch (const std::exception& e)
+      {
+        RCLCPP_ERROR_STREAM(node->get_logger(), "Could not load compulsory parameter '" << param_name << "': " << e.what());
+        return false;
+      }
+    }
 
     const bool res = node->get_parameter(param_name, param_out);
-
-    if (!res)
-      RCLCPP_ERROR_STREAM(node->get_logger(), "Could not load compulsory parameter '" << param_name << "'");
-    else
+    if (res) // the other branch should never happen since we *just* declared the parameter
       RCLCPP_INFO_STREAM(node->get_logger(), "Loaded parameter " << param_name << "': " << param_out);
 
     return res;
   }
 
-  template <typename T>
+  /*template <typename T>
   bool getCompulsoryParamCheck(const rclcpp::Node::SharedPtr& node, const std::string& param_name, T& param_out, const T& param_default)
   {
-
     const bool res = node->get_parameter(param_name, param_out);
 
     if (!res)
@@ -84,7 +91,7 @@ namespace libcamera_ros_driver
 
     RCLCPP_INFO_STREAM(node->get_logger(), "Loaded parameter '" << param_name << "': " << param_out);
     return res;
-  }
+  }*/
 
   //}
 
@@ -173,18 +180,18 @@ namespace libcamera_ros_driver
     std::string stream_role;
     std::string pixel_format;
     std::string calib_url;
-    long unsigned int camera_id;
+    int camera_id;
     int resolution_width;
     int resolution_height;
 
     success = success && getCompulsoryParamCheck(node_, "camera_name", camera_name);
-    success = success && getOptionalParamCheck(node_, "camera_id", camera_id);
+    success = success && getCompulsoryParamCheck(node_, "camera_id", camera_id);
     success = success && getCompulsoryParamCheck(node_, "stream_role", stream_role);
     success = success && getCompulsoryParamCheck(node_, "pixel_format", pixel_format);
     success = success && getCompulsoryParamCheck(node_, "frame_id", frame_id_);
     success = success && getCompulsoryParamCheck(node_, "calib_url", calib_url);
-    success = success && getCompulsoryParamCheck(node_, "resolution/width", resolution_width);
-    success = success && getCompulsoryParamCheck(node_, "resolution/height", resolution_height);
+    success = success && getCompulsoryParamCheck(node_, "resolution.width", resolution_width);
+    success = success && getCompulsoryParamCheck(node_, "resolution.height", resolution_height);
     success = success && getCompulsoryParamCheck(node_, "use_ros_time", _use_ros_time_);
 
     if (!success)
@@ -224,7 +231,7 @@ namespace libcamera_ros_driver
       }
     }
 
-    if (camera_id >= camera_manager_.cameras().size())
+    if (camera_id >= int(camera_manager_.cameras().size()))
     {
       RCLCPP_INFO_STREAM(node_->get_logger(), camera_manager_);
       RCLCPP_ERROR_STREAM(node_->get_logger(), "Camera with id " << camera_name << " does not exist");
@@ -363,27 +370,27 @@ namespace libcamera_ros_driver
     bool param_bool;
     std::vector<int64_t> param_vector_int;
 
-    if (getOptionalParamCheck(node_, "control/exposure_time", param_int))
+    if (getOptionalParamCheck(node_, "control.exposure_time", param_int))
       updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
 
-    if (getOptionalParamCheck(node_, "control/fps", param_float))
+    if (getOptionalParamCheck(node_, "control.fps", param_float))
     {
       int64_t frame_time = 1000000 / param_float;
       updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    if (getOptionalParamCheck(node_, "control/ae_constraint_mode", param_string))
+    if (getOptionalParamCheck(node_, "control.ae_constraint_mode", param_string))
 
       updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
 
-    if (getOptionalParamCheck(node_, "control/brightness", param_float))
+    if (getOptionalParamCheck(node_, "control.brightness", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
 
-    if (getOptionalParamCheck(node_, "control/sharpness", param_float))
+    if (getOptionalParamCheck(node_, "control.sharpness", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
 
-    if (getOptionalParamCheck(node_, "control/awb_enable", param_bool))
+    if (getOptionalParamCheck(node_, "control.awb_enable", param_bool))
     {
       if (parameter_ids_["AwbEnable"]) // if the parameter is set when not available, we would get a segmentation fault upon extracting its ->type()
         updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
@@ -391,32 +398,32 @@ namespace libcamera_ros_driver
         RCLCPP_ERROR_STREAM(node_->get_logger(), "Parameter AwbEnable is not available! Maybe the selected camera is grayscale");
     }
 
-    /* updateControlParameter<std::vector<float>>(std::string("control/colour_gains"), parameter_ids_["ColourGains"]); */
-    if (getOptionalParamCheck(node_, "control/ae_enable", param_bool))
+    /* updateControlParameter<std::vector<float>>(std::string("control.colour_gains"), parameter_ids_["ColourGains"]); */
+    if (getOptionalParamCheck(node_, "control.ae_enable", param_bool))
       updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
 
-    if (getOptionalParamCheck(node_, "control/saturation", param_float))
+    if (getOptionalParamCheck(node_, "control.saturation", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
 
-    if (getOptionalParamCheck(node_, "control/contrast", param_float))
+    if (getOptionalParamCheck(node_, "control.contrast", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
 
-    if (getOptionalParamCheck(node_, "control/exposure_value", param_float))
+    if (getOptionalParamCheck(node_, "control.exposure_value", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
 
-    if (getOptionalParamCheck(node_, "control/analogue_gain", param_float))
+    if (getOptionalParamCheck(node_, "control.analogue_gain", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
 
-    if (getOptionalParamCheck(node_, "control/awb_mode", param_string))
+    if (getOptionalParamCheck(node_, "control.awb_mode", param_string))
       updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
 
-    if (getOptionalParamCheck(node_, "control/ae_metering_mode", param_string))
+    if (getOptionalParamCheck(node_, "control.ae_metering_mode", param_string))
       updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
 
-    if (getOptionalParamCheck(node_, "control/scaler_crop", param_vector_int))
+    if (getOptionalParamCheck(node_, "control.scaler_crop", param_vector_int))
       updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
-    if (getOptionalParamCheck(node_, "control/control", param_string))
+    if (getOptionalParamCheck(node_, "control.control", param_string))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
     // allocate stream buffers and create one request per buffer
