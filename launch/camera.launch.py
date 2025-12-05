@@ -80,7 +80,7 @@ def generate_launch_description():
         name='LIBCAMERA_IPA_MODULE_PATH',
         value=os.environ.get(
             'LIBCAMERA_IPA_MODULE_PATH',
-            '/opt/ros/jazzy/lib/libcamera/ipa/'
+            '/opt/ros/jazzy/lib/libcamera/'
             )
     ))
 
