@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.28.0)
 project(libcamera_ros_driver)
 
 set(CMAKE_C_STANDARD 99)
@@ -27,7 +27,6 @@ if(ENABLE_COVERAGE)
 endif()
 
 set(DEPENDENCIES
-  ament_cmake
   camera_info_manager
   image_transport
   libcamera_ros
@@ -67,13 +66,19 @@ target_compile_definitions(LibcameraRosDriver_Driver
   PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER}
 )
 
-ament_target_dependencies(LibcameraRosDriver_Driver
-  ${DEPENDENCIES}
+target_link_libraries(LibcameraRosDriver_Driver
+  PUBLIC
+    camera_info_manager::camera_info_manager
+    image_transport::image_transport
+    libcamera_ros::libcamera_ros
+    rclcpp::rclcpp
+    rclcpp_components::component
+    ${sensor_msgs_TARGETS}
+    ${std_msgs_TARGETS}
 )
 
 rclcpp_components_register_node(LibcameraRosDriver_Driver
-  PLUGIN "libcamera_ros_driver::LibcameraRosDriver"
-  EXECUTABLE LibcameraRosDriver_Driver_node
+  "libcamera_ros_driver::LibcameraRosDriver"
 )
 
 ## --------------------------------------------------------------

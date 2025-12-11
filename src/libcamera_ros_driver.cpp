@@ -22,8 +22,7 @@
 #include <utility>
 #include <vector>
 
-#include <libcamera_ros/libcamera_ros.h>
-
+#include <libcamera/libcamera.h>
 #include <libcamera_ros_driver/utils/clamp.h>
 #include <libcamera_ros_driver/utils/format_mapping.h>
 #include <libcamera_ros_driver/utils/stream_mapping.h>
