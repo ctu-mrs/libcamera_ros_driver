@@ -78,7 +78,8 @@ target_link_libraries(LibcameraRosDriver_Driver
 )
 
 rclcpp_components_register_node(LibcameraRosDriver_Driver
-  "libcamera_ros_driver::LibcameraRosDriver"
+  PLUGIN "libcamera_ros_driver::LibcameraRosDriver"
+  EXECUTABLE LibcameraRosDriver_Driver_node
 )
 
 ## --------------------------------------------------------------
