@@ -34,6 +34,7 @@ set(DEPENDENCIES
   rclcpp_components
   sensor_msgs
   std_msgs
+  mrs_lib
 )
 
 set(LIBRARIES
@@ -72,6 +73,7 @@ target_link_libraries(LibcameraRosDriver_Driver
     image_transport::image_transport
     libcamera_ros::libcamera_ros
     rclcpp::rclcpp
+    mrs_lib::mrs_lib
     rclcpp_components::component
     ${sensor_msgs_TARGETS}
     ${std_msgs_TARGETS}

@@ -96,6 +96,8 @@ def generate_launch_description():
 
     # #{ camera_name
 
+    camera_name = LaunchConfiguration('camera_name')
+
     ld.add_action(DeclareLaunchArgument(
         'camera_name',
         default_value='front',
@@ -179,21 +181,20 @@ def generate_launch_description():
         package=pkg_name,
         plugin='libcamera_ros_driver::LibcameraRosDriver',
         namespace=uav_name,
-        name='libcamera_ros_driver',
+        name=['rpi_camera_', camera_name],
 
         parameters=[
-            this_pkg_path + '/config/default.yaml',
-            {'uav_name': uav_name},
             {'use_sim_time': use_sim_time},
-            {'frame_id': frame_id},
+            {'frame_id': [uav_name, "/rpi_camera_", camera_name]},
             {'calib_url': calib_url},
+            {'config': this_pkg_path + '/config/default.yaml'},
             {'custom_config': custom_config},
         ],
 
         remappings=[
             # publishers
-            ('~/image_raw', PathJoinSubstitution(['/', uav_name, LaunchConfiguration('topic_namespace'), 'image_raw'])),
-            ('~/camera_info', PathJoinSubstitution(['/', uav_name, LaunchConfiguration('topic_namespace'), 'camera_info'])),
+            ('~/image_raw', '~/image_raw'),
+            ('~/camera_info', '~/camera_info'),
         ],
     )
 

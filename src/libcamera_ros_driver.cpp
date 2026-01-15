@@ -7,17 +7,13 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <iostream>
-#include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <sys/mman.h>
 #include <tuple>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -40,63 +36,17 @@
 #include <std_msgs/msg/header.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 
+#include <mrs_lib/param_loader.h>
+#include <mrs_lib/node.h>
+
 //}
 
 namespace libcamera_ros_driver
 {
 
-  /* ParamCheck() method //{ */
-  template <typename T>
-  bool getOptionalParamCheck(const rclcpp::Node::SharedPtr& node, const std::string& param_name, T& param_out)
-  {
-    if (!node->get_parameter(param_name, param_out))
-      return false;
-
-    RCLCPP_INFO_STREAM(node->get_logger(), param_name << "': " << param_out);
-
-    return true;
-  }
-
-  template <typename T>
-  bool getCompulsoryParamCheck(const rclcpp::Node::SharedPtr& node, const std::string& param_name, T& param_out)
-  {
-    if (!node->has_parameter(param_name))
-    {
-      try
-      {
-        node->declare_parameter<T>(param_name); // for Galactic and newer, the type has to be specified here
-      }
-      catch (const std::exception& e)
-      {
-        RCLCPP_ERROR_STREAM(node->get_logger(), "Could not load compulsory parameter '" << param_name << "': " << e.what());
-        return false;
-      }
-    }
-
-    const bool res = node->get_parameter(param_name, param_out);
-    if (res) // the other branch should never happen since we *just* declared the parameter
-      RCLCPP_INFO_STREAM(node->get_logger(), "Loaded parameter " << param_name << "': " << param_out);
-
-    return res;
-  }
-
-  /*template <typename T>
-  bool getCompulsoryParamCheck(const rclcpp::Node::SharedPtr& node, const std::string& param_name, T& param_out, const T& param_default)
-  {
-    const bool res = node->get_parameter(param_name, param_out);
-
-    if (!res)
-      param_out = param_default;
-
-    RCLCPP_INFO_STREAM(node->get_logger(), "Loaded parameter '" << param_name << "': " << param_out);
-    return res;
-  }*/
-
-  //}
-
   /* class LibcameraRosDriver //{ */
 
-  class LibcameraRosDriver : public rclcpp::Node
+  class LibcameraRosDriver : public mrs_lib::Node
   {
   public:
     LibcameraRosDriver(rclcpp::NodeOptions options);
@@ -105,9 +55,6 @@ namespace libcamera_ros_driver
   private:
     rclcpp::Node::SharedPtr node_;
     void initialize();
-
-    rclcpp::TimerBase::SharedPtr timer_preinitialization_;
-    void timerPreInitialization();
 
     libcamera::CameraManager camera_manager_;
     std::shared_ptr<libcamera::Camera> camera_;
@@ -148,33 +95,35 @@ namespace libcamera_ros_driver
 
   //}
 
-  /* LibcameraRosDriver::LibcameraRosDriver() //{ */
+  /* LibcameraRosDriver() //{ */
 
-  LibcameraRosDriver::LibcameraRosDriver(rclcpp::NodeOptions options) : Node("LibcameraRosDriver", options)
+  LibcameraRosDriver::LibcameraRosDriver(rclcpp::NodeOptions options) : mrs_lib::Node("LibcameraRosDriver", options)
   {
-    timer_preinitialization_ = create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&LibcameraRosDriver::timerPreInitialization, this));
-  }
-
-  //}
-
-  /* LibcameraRosDriver::timerPreInitialization() //{ */
-
-  void LibcameraRosDriver::timerPreInitialization()
-  {
-    node_ = this->shared_from_this();
-
     initialize();
-    timer_preinitialization_->cancel();
   }
 
   //}
 
-  /* LibcameraRosDriver::initialize method //{ */
+  /* initialize() //{ */
 
   void LibcameraRosDriver::initialize()
   {
-    /* load parameters //{ */
-    bool success = true;
+
+    node_ = this_node_ptr();
+
+    mrs_lib::ParamLoader param_loader(node_);
+
+    std::string custom_config_path;
+
+    param_loader.loadParam("custom_config", custom_config_path);
+
+    if (custom_config_path != "")
+    {
+      param_loader.addYamlFile(custom_config_path);
+    }
+
+    param_loader.addYamlFileFromParam("config");
+
     std::string camera_name;
     std::string stream_role;
     std::string pixel_format;
@@ -183,27 +132,29 @@ namespace libcamera_ros_driver
     int resolution_width;
     int resolution_height;
 
-    success = success && getCompulsoryParamCheck(node_, "camera_name", camera_name);
-    success = success && getCompulsoryParamCheck(node_, "camera_id", camera_id);
-    success = success && getCompulsoryParamCheck(node_, "stream_role", stream_role);
-    success = success && getCompulsoryParamCheck(node_, "pixel_format", pixel_format);
-    success = success && getCompulsoryParamCheck(node_, "frame_id", frame_id_);
-    success = success && getCompulsoryParamCheck(node_, "calib_url", calib_url);
-    success = success && getCompulsoryParamCheck(node_, "resolution.width", resolution_width);
-    success = success && getCompulsoryParamCheck(node_, "resolution.height", resolution_height);
-    success = success && getCompulsoryParamCheck(node_, "use_ros_time", _use_ros_time_);
+    param_loader.loadParam("frame_id", frame_id_);
+    param_loader.loadParam("calib_url", calib_url);
 
-    if (!success)
+    param_loader.setPrefix("libcamera_ros_driver/");
+
+    param_loader.loadParam("camera_name", camera_name);
+    param_loader.loadParam("camera_id", camera_id);
+    param_loader.loadParam("stream_role", stream_role);
+    param_loader.loadParam("pixel_format", pixel_format);
+    param_loader.loadParam("resolution/width", resolution_width);
+    param_loader.loadParam("resolution/height", resolution_height);
+    param_loader.loadParam("use_ros_time", _use_ros_time_);
+
+    if (!param_loader.loadedSuccessfully())
     {
-      RCLCPP_ERROR(node_->get_logger(), "Some compulsory parameters were not loaded successfully, ending the node");
+      RCLCPP_ERROR(this_node().get_logger(), "Could not load all parameters!");
       rclcpp::shutdown();
-      return;
+      exit(1);
     }
-
-    //}
 
     // start camera manager and check for cameras
     camera_manager_.start();
+
     if (camera_manager_.cameras().empty())
     {
       RCLCPP_ERROR(node_->get_logger(), "No cameras available");
@@ -237,6 +188,7 @@ namespace libcamera_ros_driver
       rclcpp::shutdown();
       return;
     }
+
     camera_ = camera_manager_.cameras().at(camera_id);
     RCLCPP_INFO_STREAM(node_->get_logger(), "Use camera by id: " << camera_id);
 
@@ -369,27 +321,27 @@ namespace libcamera_ros_driver
     bool param_bool;
     std::vector<int64_t> param_vector_int;
 
-    if (getOptionalParamCheck(node_, "control.exposure_time", param_int))
+    if (param_loader.loadParam("control.exposure_time", param_int))
       updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
 
-    if (getOptionalParamCheck(node_, "control.fps", param_float))
+    if (param_loader.loadParam("control.fps", param_float))
     {
       int64_t frame_time = 1000000 / param_float;
       updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    if (getOptionalParamCheck(node_, "control.ae_constraint_mode", param_string))
+    if (param_loader.loadParam("control.ae_constraint_mode", param_string))
 
       updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
 
-    if (getOptionalParamCheck(node_, "control.brightness", param_float))
+    if (param_loader.loadParam("control.brightness", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
 
-    if (getOptionalParamCheck(node_, "control.sharpness", param_float))
+    if (param_loader.loadParam("control.sharpness", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
 
-    if (getOptionalParamCheck(node_, "control.awb_enable", param_bool))
+    if (param_loader.loadParam("control.awb_enable", param_bool))
     {
       if (parameter_ids_["AwbEnable"]) // if the parameter is set when not available, we would get a segmentation fault upon extracting its ->type()
         updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
@@ -398,31 +350,31 @@ namespace libcamera_ros_driver
     }
 
     /* updateControlParameter<std::vector<float>>(std::string("control.colour_gains"), parameter_ids_["ColourGains"]); */
-    if (getOptionalParamCheck(node_, "control.ae_enable", param_bool))
+    if (param_loader.loadParam("control.ae_enable", param_bool))
       updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
 
-    if (getOptionalParamCheck(node_, "control.saturation", param_float))
+    if (param_loader.loadParam("control.saturation", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
 
-    if (getOptionalParamCheck(node_, "control.contrast", param_float))
+    if (param_loader.loadParam("control.contrast", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
 
-    if (getOptionalParamCheck(node_, "control.exposure_value", param_float))
+    if (param_loader.loadParam("control.exposure_value", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
 
-    if (getOptionalParamCheck(node_, "control.analogue_gain", param_float))
+    if (param_loader.loadParam("control.analogue_gain", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
 
-    if (getOptionalParamCheck(node_, "control.awb_mode", param_string))
+    if (param_loader.loadParam("control.awb_mode", param_string))
       updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
 
-    if (getOptionalParamCheck(node_, "control.ae_metering_mode", param_string))
+    if (param_loader.loadParam("control.ae_metering_mode", param_string))
       updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
 
-    if (getOptionalParamCheck(node_, "control.scaler_crop", param_vector_int))
+    if (param_loader.loadParam("control.scaler_crop", param_vector_int))
       updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
-    if (getOptionalParamCheck(node_, "control.control", param_string))
+    if (param_loader.loadParam("control.control", param_string))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
     // allocate stream buffers and create one request per buffer
@@ -505,7 +457,7 @@ namespace libcamera_ros_driver
     /* initialize publishers //{ */
 
     image_transport::ImageTransport it(node_);
-    image_pub_ = it.advertiseCamera("image_raw", 5);
+    image_pub_ = it.advertiseCamera("~/image_raw", 1);
 
     //}
 
@@ -524,12 +476,13 @@ namespace libcamera_ros_driver
       camera_->queueRequest(request.get());
 
     // | --------------------- finish the init -------------------- |
+
     RCLCPP_INFO(node_->get_logger(), "Initialized");
   }
 
   //}
 
-  /* LibcameraRosDriver::~LibcameraRosDriver() //{ */
+  /* ~LibcameraRosDriver() //{ */
 
   LibcameraRosDriver::~LibcameraRosDriver()
   {
@@ -539,7 +492,9 @@ namespace libcamera_ros_driver
       std::scoped_lock lock(request_lock_);
 
       if (camera_->stop())
+      {
         RCLCPP_ERROR(node_->get_logger(), "Failed to stop camera");
+      }
     }
 
     camera_->release();
@@ -548,13 +503,15 @@ namespace libcamera_ros_driver
     for (const auto& e : buffer_info_)
     {
       if (munmap(e.second.data, e.second.size) == -1)
+      {
         RCLCPP_ERROR_STREAM(node_->get_logger(), "Munmap failed: " << std::strerror(errno));
+      }
     }
   }
 
   //}
 
-  /* LibcameraRosDriver::declareControlParameters() //{ */
+  /* declareControlParameters() //{ */
 
   void LibcameraRosDriver::declareControlParameters()
   {
@@ -591,7 +548,7 @@ namespace libcamera_ros_driver
 
   //}
 
-  /* LibcameraRosDriver::updateControlParameter() //{ */
+  /* updateControlParameter() //{ */
 
   bool LibcameraRosDriver::updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id)
   {
@@ -635,7 +592,7 @@ namespace libcamera_ros_driver
 
   //}
 
-  /* LibcameraRosDriver::requestComplete() //{ */
+  /* requestComplete() //{ */
 
   void LibcameraRosDriver::requestComplete(libcamera::Request* request)
   {
@@ -651,7 +608,9 @@ namespace libcamera_ros_driver
       size_t bytesused = 0;
 
       for (const libcamera::FrameMetadata::Plane& plane : metadata.planes())
+      {
         bytesused += plane.bytesused;
+      }
 
       // send image data
       std_msgs::msg::Header hdr;
@@ -688,6 +647,7 @@ namespace libcamera_ros_driver
         image_msg.encoding = get_ros_encoding(cfg.pixelFormat);
         image_msg.is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
         image_msg.data.resize(buffer_info_[buffer].size);
+
         memcpy(image_msg.data.data(), buffer_info_[buffer].data, buffer_info_[buffer].size);
 
       } else
@@ -703,8 +663,11 @@ namespace libcamera_ros_driver
         std::scoped_lock lock(image_pub_mutex_);
         image_pub_.publish(image_msg, cinfo_msg);
       }
+
     } else if (request->status() == libcamera::Request::RequestCancelled)
+    {
       RCLCPP_ERROR_STREAM(node_->get_logger(), "Request '" << request->toString() << "' cancelled");
+    }
 
     // queue the request again for the next frame
     request->reuse(libcamera::Request::ReuseBuffers);
