@@ -143,18 +143,6 @@ def generate_launch_description():
 
     # #} end of use_sim_time
 
-    # #{ frame_id
-
-    frame_id = LaunchConfiguration('frame_id')
-
-    ld.add_action(DeclareLaunchArgument(
-        'frame_id',
-        default_value=os.getenv('FRAME_ID', 'libcamera_frame'),
-        description='The frame_id to set in the camera info message',
-    ))
-
-    # #} end of frame_id
-
     # #{ calib_url
 
     calib_url = LaunchConfiguration('calib_url')
