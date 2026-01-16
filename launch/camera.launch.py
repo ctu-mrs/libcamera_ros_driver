@@ -200,7 +200,7 @@ def generate_launch_description():
 
     standalone_container = ComposableNodeContainer(
         namespace=uav_name,
-        name=namespace+'_container',
+        name=['rpi_camera_', camera_name, "_container"],
         package='rclcpp_components',
         executable='component_container_mt',
         output='screen',
