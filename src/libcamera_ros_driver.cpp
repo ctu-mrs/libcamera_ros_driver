@@ -154,50 +154,46 @@ namespace libcamera_ros_driver
 
     // start camera manager and check for cameras
     camera_manager_.start();
-
-    if (camera_manager_.cameras().empty())
-    {
-      RCLCPP_ERROR(node_->get_logger(), "No cameras available");
+    if (camera_manager_.cameras().empty()){
+      RCLCPP_ERROR(this_node().get_logger(), "no cameras available");
       rclcpp::shutdown();
-      return;
+      exit(1);
     }
 
-    if (!camera_name.empty())
-    {
+    if (!camera_name.empty()){
+
       std::vector<std::string> available_cameras;
-      RCLCPP_INFO_STREAM(node_->get_logger(), "Available cameras:");
-      for (long unsigned int i = 0; i < camera_manager_.cameras().size(); i++)
-      {
+
+      RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
+
+      for(size_t i = 0; i < camera_manager_.cameras().size(); i++){
         available_cameras.push_back(camera_manager_.cameras().at(i)->id());
       }
-      for (long unsigned int i = 0; i < available_cameras.size(); i++)
-      {
-        if (available_cameras.at(i).find(camera_name) != std::string::npos)
-        {
-          RCLCPP_INFO_STREAM(node_->get_logger(), "Found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
-          camera_id = i;
+
+      for(size_t i = 0; i < available_cameras.size(); i++){
+
+        if(available_cameras.at(i).find(camera_name) != std::string::npos && int(i) == camera_id){
+          RCLCPP_INFO_STREAM(this_node().get_logger(), "found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
           break;
         }
       }
     }
 
-    if (camera_id >= int(camera_manager_.cameras().size()))
-    {
-      RCLCPP_INFO_STREAM(node_->get_logger(), camera_manager_);
-      RCLCPP_ERROR_STREAM(node_->get_logger(), "Camera with id " << camera_name << " does not exist");
+    if(camera_id >= int(camera_manager_.cameras().size())){
+      RCLCPP_INFO_STREAM(this_node().get_logger(), camera_manager_);
+      RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with id " << camera_name << " does not exist");
       rclcpp::shutdown();
-      return;
+      exit(1);
     }
 
     camera_ = camera_manager_.cameras().at(camera_id);
-    RCLCPP_INFO_STREAM(node_->get_logger(), "Use camera by id: " << camera_id);
+    RCLCPP_INFO_STREAM(this_node().get_logger(), "Use camera by id: " << camera_id);
 
-    if (!camera_)
-    {
-      RCLCPP_INFO_STREAM(node_->get_logger(), camera_manager_);
-      RCLCPP_ERROR_STREAM(node_->get_logger(), "Camera with name " << camera_name << " does not exist");
+    if (!camera_) {
+      RCLCPP_INFO_STREAM(this_node().get_logger(), camera_manager_);
+      RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with name " << camera_name << " does not exist");
       rclcpp::shutdown();
-      return;
+      exit(1);
     }
 
     if (camera_->acquire())
