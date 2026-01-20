@@ -133,12 +133,12 @@ namespace libcamera_ros_driver
     int resolution_height;
 
     param_loader.loadParam("frame_id", frame_id_);
+    param_loader.loadParam("camera_id", camera_id);
     param_loader.loadParam("calib_url", calib_url);
 
     param_loader.setPrefix("libcamera_ros_driver/");
 
     param_loader.loadParam("camera_name", camera_name);
-    param_loader.loadParam("camera_id", camera_id);
     param_loader.loadParam("stream_role", stream_role);
     param_loader.loadParam("pixel_format", pixel_format);
     param_loader.loadParam("resolution/width", resolution_width);
@@ -160,6 +160,20 @@ namespace libcamera_ros_driver
       exit(1);
     }
 
+    // When camera name is specified, the camera id is automatically extracted.
+    // This only works if the cameras have unique IDs.
+    // When using two identical cameras, define them like this in /boot/firmware/config.txt
+    //
+		// dtoverlay=ov9281                                                                                                                                          
+		// dtoverlay=ov9281,cam0
+		// dtoverlay=ov9281,cam1
+		// 
+		// ... this will make them have a unique ID.
+		// Then do `sudo rpicam-hello --list-cameras` and you will get two unique IDs, like:
+		//
+		// /base/axi/pcie@120000/rp1/i2c@80000/ov9281@60
+		// /base/axi/pcie@120000/rp1/i2c@88000/ov9281@60
+
     if (!camera_name.empty()){
 
       std::vector<std::string> available_cameras;
@@ -172,8 +186,9 @@ namespace libcamera_ros_driver
 
       for(size_t i = 0; i < available_cameras.size(); i++){
 
-        if(available_cameras.at(i).find(camera_name) != std::string::npos && int(i) == camera_id){
+        if(available_cameras.at(i).find(camera_name) != std::string::npos) {
           RCLCPP_INFO_STREAM(this_node().get_logger(), "found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
+          camera_id = i;
           break;
         }
       }
