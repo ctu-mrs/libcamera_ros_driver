@@ -133,12 +133,12 @@ namespace libcamera_ros_driver
     int resolution_height;
 
     param_loader.loadParam("frame_id", frame_id_);
-    param_loader.loadParam("camera_id", camera_id);
     param_loader.loadParam("calib_url", calib_url);
 
     param_loader.setPrefix("libcamera_ros_driver/");
 
     param_loader.loadParam("camera_name", camera_name);
+    param_loader.loadParam("camera_id", camera_id);
     param_loader.loadParam("stream_role", stream_role);
     param_loader.loadParam("pixel_format", pixel_format);
     param_loader.loadParam("resolution/width", resolution_width);
