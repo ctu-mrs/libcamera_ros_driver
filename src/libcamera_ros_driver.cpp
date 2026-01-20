@@ -317,27 +317,27 @@ namespace libcamera_ros_driver
     bool param_bool;
     std::vector<int64_t> param_vector_int;
 
-    if (param_loader.loadParam("control.exposure_time", param_int))
+    if (param_loader.loadParam("control/exposure_time", param_int))
       updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
 
-    if (param_loader.loadParam("control.fps", param_float))
+    if (param_loader.loadParam("control/fps", param_float))
     {
       int64_t frame_time = 1000000 / param_float;
       updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    if (param_loader.loadParam("control.ae_constraint_mode", param_string))
+    if (param_loader.loadParam("control/ae_constraint_mode", param_string))
 
       updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
 
-    if (param_loader.loadParam("control.brightness", param_float))
+    if (param_loader.loadParam("control/brightness", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
 
-    if (param_loader.loadParam("control.sharpness", param_float))
+    if (param_loader.loadParam("control/sharpness", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
 
-    if (param_loader.loadParam("control.awb_enable", param_bool))
+    if (param_loader.loadParam("control/awb_enable", param_bool))
     {
       if (parameter_ids_["AwbEnable"]) // if the parameter is set when not available, we would get a segmentation fault upon extracting its ->type()
         updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
@@ -346,31 +346,31 @@ namespace libcamera_ros_driver
     }
 
     /* updateControlParameter<std::vector<float>>(std::string("control.colour_gains"), parameter_ids_["ColourGains"]); */
-    if (param_loader.loadParam("control.ae_enable", param_bool))
+    if (param_loader.loadParam("control/ae_enable", param_bool))
       updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
 
-    if (param_loader.loadParam("control.saturation", param_float))
+    if (param_loader.loadParam("control/saturation", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
 
-    if (param_loader.loadParam("control.contrast", param_float))
+    if (param_loader.loadParam("control/contrast", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
 
-    if (param_loader.loadParam("control.exposure_value", param_float))
+    if (param_loader.loadParam("control/exposure_value", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
 
-    if (param_loader.loadParam("control.analogue_gain", param_float))
+    if (param_loader.loadParam("control/analogue_gain", param_float))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
 
-    if (param_loader.loadParam("control.awb_mode", param_string))
+    if (param_loader.loadParam("control/awb_mode", param_string))
       updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
 
-    if (param_loader.loadParam("control.ae_metering_mode", param_string))
+    if (param_loader.loadParam("control/ae_metering_mode", param_string))
       updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
 
-    if (param_loader.loadParam("control.scaler_crop", param_vector_int))
+    if (param_loader.loadParam("control/scaler_crop", param_vector_int))
       updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
-    if (param_loader.loadParam("control.control", param_string))
+    if (param_loader.loadParam("control/control", param_string))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
     // allocate stream buffers and create one request per buffer
