@@ -210,7 +210,7 @@ def generate_launch_description():
         parameters=[
             {'use_intra_process_comms': True},
             {'thread_num': os.cpu_count()},
-            {'use_sim_time': use_sim_time},
+            {'use_sim_time': use_sim_time}
         ],
         condition=IfCondition(standalone)
     )
