@@ -22,9 +22,7 @@ def generate_launch_description():
     ld = launch.LaunchDescription()
 
     pkg_name = 'libcamera_ros_driver'
-
     this_pkg_path = get_package_share_directory(pkg_name)
-    namespace = 'libcamera_ros_driver'
 
     # #{ uav_name
 
