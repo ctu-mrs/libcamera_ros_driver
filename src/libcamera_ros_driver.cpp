@@ -154,7 +154,8 @@ namespace libcamera_ros_driver
 
     // start camera manager and check for cameras
     camera_manager_.start();
-    if (camera_manager_.cameras().empty()){
+    if (camera_manager_.cameras().empty())
+    {
       RCLCPP_ERROR(this_node().get_logger(), "no cameras available");
       rclcpp::shutdown();
       exit(1);
@@ -164,29 +165,33 @@ namespace libcamera_ros_driver
     // This only works if the cameras have unique IDs.
     // When using two identical cameras, define them like this in /boot/firmware/config.txt
     //
-		// dtoverlay=ov9281                                                                                                                                          
-		// dtoverlay=ov9281,cam0
-		// dtoverlay=ov9281,cam1
-		// 
-		// ... this will make them have a unique ID.
-		// Then do `sudo rpicam-hello --list-cameras` and you will get two unique IDs, like:
-		//
-		// /base/axi/pcie@120000/rp1/i2c@80000/ov9281@60
-		// /base/axi/pcie@120000/rp1/i2c@88000/ov9281@60
+    // dtoverlay=ov9281
+    // dtoverlay=ov9281,cam0
+    // dtoverlay=ov9281,cam1
+    //
+    // ... this will make them have a unique ID.
+    // Then do `sudo rpicam-hello --list-cameras` and you will get two unique IDs, like:
+    //
+    // /base/axi/pcie@120000/rp1/i2c@80000/ov9281@60
+    // /base/axi/pcie@120000/rp1/i2c@88000/ov9281@60
 
-    if (!camera_name.empty()){
+    if (!camera_name.empty())
+    {
 
       std::vector<std::string> available_cameras;
 
       RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
 
-      for(size_t i = 0; i < camera_manager_.cameras().size(); i++){
+      for (size_t i = 0; i < camera_manager_.cameras().size(); i++)
+      {
         available_cameras.push_back(camera_manager_.cameras().at(i)->id());
       }
 
-      for(size_t i = 0; i < available_cameras.size(); i++){
+      for (size_t i = 0; i < available_cameras.size(); i++)
+      {
 
-        if(available_cameras.at(i).find(camera_name) != std::string::npos) {
+        if (available_cameras.at(i).find(camera_name) != std::string::npos)
+        {
           RCLCPP_INFO_STREAM(this_node().get_logger(), "found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
           camera_id = i;
           break;
@@ -194,7 +199,8 @@ namespace libcamera_ros_driver
       }
     }
 
-    if(camera_id >= int(camera_manager_.cameras().size())){
+    if (camera_id >= int(camera_manager_.cameras().size()))
+    {
       RCLCPP_INFO_STREAM(this_node().get_logger(), camera_manager_);
       RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with id " << camera_name << " does not exist");
       rclcpp::shutdown();
@@ -204,7 +210,8 @@ namespace libcamera_ros_driver
     camera_ = camera_manager_.cameras().at(camera_id);
     RCLCPP_INFO_STREAM(this_node().get_logger(), "Use camera by id: " << camera_id);
 
-    if (!camera_) {
+    if (!camera_)
+    {
       RCLCPP_INFO_STREAM(this_node().get_logger(), camera_manager_);
       RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with name " << camera_name << " does not exist");
       rclcpp::shutdown();
@@ -332,60 +339,54 @@ namespace libcamera_ros_driver
     bool param_bool;
     std::vector<int64_t> param_vector_int;
 
-    if (param_loader.loadParam("control/exposure_time", param_int))
+    if (param_loader.loadParam("control/exposure_time", param_int) && parameter_ids_.count("ExposureTime"))
       updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
 
-    if (param_loader.loadParam("control/fps", param_float))
+    if (param_loader.loadParam("control/fps", param_float) && parameter_ids_.count("FrameDurationLimits"))
     {
       int64_t frame_time = 1000000 / param_float;
       updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    if (param_loader.loadParam("control/ae_constraint_mode", param_string))
-
+    if (param_loader.loadParam("control/ae_constraint_mode", param_string) && parameter_ids_.count("AeConstraintMode"))
       updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
 
-    if (param_loader.loadParam("control/brightness", param_float))
+    if (param_loader.loadParam("control/brightness", param_float) && parameter_ids_.count("Brightness"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
 
-    if (param_loader.loadParam("control/sharpness", param_float))
+    if (param_loader.loadParam("control/sharpness", param_float) && parameter_ids_.count("Sharpness"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
 
-    if (param_loader.loadParam("control/awb_enable", param_bool))
-    {
-      if (parameter_ids_["AwbEnable"]) // if the parameter is set when not available, we would get a segmentation fault upon extracting its ->type()
-        updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
-      else
-        RCLCPP_ERROR_STREAM(node_->get_logger(), "Parameter AwbEnable is not available! Maybe the selected camera is grayscale");
-    }
+    if (param_loader.loadParam("control/awb_enable", param_bool) && parameter_ids_.count("AwbEnable"))
+      updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
 
     /* updateControlParameter<std::vector<float>>(std::string("control.colour_gains"), parameter_ids_["ColourGains"]); */
-    if (param_loader.loadParam("control/ae_enable", param_bool))
+    if (param_loader.loadParam("control/ae_enable", param_bool) && parameter_ids_.count("AeEnable"))
       updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
 
-    if (param_loader.loadParam("control/saturation", param_float))
+    if (param_loader.loadParam("control/saturation", param_float) && parameter_ids_.count("Saturation"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
 
-    if (param_loader.loadParam("control/contrast", param_float))
+    if (param_loader.loadParam("control/contrast", param_float) && parameter_ids_.count("Contrast"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
 
-    if (param_loader.loadParam("control/exposure_value", param_float))
+    if (param_loader.loadParam("control/exposure_value", param_float) && parameter_ids_.count("ExposureValue"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
 
-    if (param_loader.loadParam("control/analogue_gain", param_float))
+    if (param_loader.loadParam("control/analogue_gain", param_float) && parameter_ids_.count("AnalogueGain"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
 
-    if (param_loader.loadParam("control/awb_mode", param_string))
+    if (param_loader.loadParam("control/awb_mode", param_string) && parameter_ids_.count("AwbMode"))
       updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
 
-    if (param_loader.loadParam("control/ae_metering_mode", param_string))
+    if (param_loader.loadParam("control/ae_metering_mode", param_string) && parameter_ids_.count("AeMeteringMode"))
       updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
 
-    if (param_loader.loadParam("control/scaler_crop", param_vector_int))
+    if (param_loader.loadParam("control/scaler_crop", param_vector_int) && parameter_ids_.count("ScalerCrop"))
       updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
-    if (param_loader.loadParam("control/control", param_string))
+    if (param_loader.loadParam("control/control", param_string) && parameter_ids_.count("AeExposureMode"))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
     // allocate stream buffers and create one request per buffer

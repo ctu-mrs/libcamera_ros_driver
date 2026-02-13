@@ -45,11 +45,6 @@ libcamera::ControlValue pv_to_cv(const double& parameter)
   return {CTFloat(parameter)};
 }
 
-libcamera::ControlValue pv_to_cv(const std::string& parameter)
-{
-  return {parameter};
-}
-
 libcamera::ControlValue pv_to_cv(const std::vector<int64_t>& parameter, const libcamera::ControlType& type)
 {
   return pv_to_cv_int_array(parameter, type);
@@ -58,9 +53,4 @@ libcamera::ControlValue pv_to_cv(const std::vector<int64_t>& parameter, const li
 libcamera::ControlValue pv_to_cv(const std::vector<double>& parameter)
 {
   return {libcamera::Span<const CTFloat>(std::vector<CTFloat>(parameter.begin(), parameter.end()))};
-}
-
-libcamera::ControlValue pv_to_cv(const std::vector<std::string>& parameter)
-{
-  return {libcamera::Span<const CTString>(parameter)};
 }
