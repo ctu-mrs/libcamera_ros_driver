@@ -29,7 +29,7 @@ endif()
 set(DEPENDENCIES
   camera_info_manager
   image_transport
-  camera_ros
+  libcamera_ros
   rclcpp
   rclcpp_components
   sensor_msgs
@@ -71,7 +71,7 @@ target_link_libraries(LibcameraRosDriver_Driver
   PUBLIC
     camera_info_manager::camera_info_manager
     image_transport::image_transport
-    camera_ros::camera_component
+    libcamera_ros::libcamera_ros
     rclcpp::rclcpp
     mrs_lib::mrs_lib
     rclcpp_components::component
