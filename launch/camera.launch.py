@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 
 import launch
 from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
@@ -23,6 +23,11 @@ def generate_launch_description():
 
     pkg_name = 'libcamera_ros_driver'
     this_pkg_path = get_package_share_directory(pkg_name)
+
+    try:
+        libcamera_path = get_package_prefix('libcamera_ros')
+    except:
+        libcamera_path = '/opt/ros/jazzy'
 
     # #{ uav_name
 
@@ -70,23 +75,23 @@ def generate_launch_description():
         name='LIBPISP_BE_CONFIG_FILE',
         value=os.environ.get(
             'LIBPISP_BE_CONFIG_FILE',
-            '/opt/ros/jazzy/share/libpisp/backend_default_config.json'
-            )
+            f'{libcamera_path}/share/libpisp/backend_default_config.json'
+        )
     ))
 
     ld.add_action(SetEnvironmentVariable(
         name='LIBCAMERA_IPA_MODULE_PATH',
         value=os.environ.get(
             'LIBCAMERA_IPA_MODULE_PATH',
-            '/opt/ros/jazzy/lib/libcamera/'
-            )
+            f'{libcamera_path}/lib/libcamera/ipa/'
+        )
     ))
 
     ld.add_action(SetEnvironmentVariable(
         name='LIBCAMERA_IPA_CONFIG_PATH',
         value=os.environ.get(
             'LIBCAMERA_IPA_CONFIG_PATH',
-            '/opt/ros/jazzy/share/libcamera/ipa'
+            f'{libcamera_path}/share/libcamera/ipa'
         )
     ))
 

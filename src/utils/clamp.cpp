@@ -117,9 +117,12 @@ libcamera::ControlValue clamp(const libcamera::ControlValue& value, const libcam
     CASE_CLAMP(Integer32)
     CASE_CLAMP(Integer64)
     CASE_CLAMP(Float)
-    CASE_CLAMP(String)
     CASE_CLAMP(Rectangle)
     CASE_CLAMP(Size)
+    CASE_NONE(String)
+    CASE_NONE(Unsigned16)
+    CASE_NONE(Unsigned32)
+    CASE_NONE(Point)
   }
 
   return {};
@@ -220,9 +223,12 @@ bool operator<(const libcamera::ControlValue& lhs, const libcamera::ControlValue
     CASE_LESS(Integer32)
     CASE_LESS(Integer64)
     CASE_LESS(Float)
-    CASE_LESS(String)
     CASE_LESS(Rectangle)
     CASE_LESS(Size)
+    CASE_NONE(String)
+    CASE_NONE(Unsigned16)
+    CASE_NONE(Unsigned32)
+    CASE_NONE(Point)
   }
 
   throw std::runtime_error("unhandled control type " + std::to_string(lhs.type()));
@@ -240,9 +246,12 @@ bool operator>(const libcamera::ControlValue& lhs, const libcamera::ControlValue
     CASE_GREATER(Integer32)
     CASE_GREATER(Integer64)
     CASE_GREATER(Float)
-    CASE_GREATER(String)
     CASE_GREATER(Rectangle)
     CASE_GREATER(Size)
+    CASE_NONE(String)
+    CASE_NONE(Unsigned16)
+    CASE_NONE(Unsigned32)
+    CASE_NONE(Point)
   }
 
   throw std::runtime_error("unhandled control type " + std::to_string(lhs.type()));

@@ -27,7 +27,7 @@ std::size_t get_extent(const libcamera::Control<T>&)
 std::size_t get_extent(const libcamera::ControlId* id)
 {
   IF(AeEnable)
-  IF(AeLocked)
+  /* IF(AeLocked) */
   IF(AeMeteringMode)
   IF(AeConstraintMode)
   IF(AeExposureMode)

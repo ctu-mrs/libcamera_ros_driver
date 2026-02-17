@@ -7,67 +7,84 @@
 
 namespace std
 {
-std::string
-to_string(const libcamera::ControlType id);
+  std::string to_string(const libcamera::ControlType id);
 } // namespace std
 
 // map 'ControlType' enums to C++ types
 
-template<libcamera::ControlType>
+template <libcamera::ControlType>
 struct ControlTypeMap;
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeNone>
 {
   using type = void;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeBool>
 {
   using type = bool;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeByte>
 {
   using type = uint8_t;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeInteger32>
 {
   using type = int32_t;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeInteger64>
 {
   using type = int64_t;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeFloat>
 {
   using type = float;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeString>
 {
   using type = std::string;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeRectangle>
 {
   using type = libcamera::Rectangle;
 };
 
-template<>
+template <>
 struct ControlTypeMap<libcamera::ControlTypeSize>
 {
   using type = libcamera::Size;
+};
+
+template <>
+struct ControlTypeMap<libcamera::ControlTypeUnsigned16>
+{
+  using type = uint16_t;
+};
+
+template <>
+struct ControlTypeMap<libcamera::ControlTypeUnsigned32>
+{
+  using type = uint32_t;
+};
+
+template <>
+struct ControlTypeMap<libcamera::ControlTypePoint>
+{
+  using type = libcamera::Point;
 };
 
 typedef ControlTypeMap<libcamera::ControlTypeNone>::type CTNone;
@@ -78,4 +95,8 @@ typedef ControlTypeMap<libcamera::ControlTypeInteger64>::type CTInteger64;
 typedef ControlTypeMap<libcamera::ControlTypeFloat>::type CTFloat;
 typedef ControlTypeMap<libcamera::ControlTypeString>::type CTString;
 typedef ControlTypeMap<libcamera::ControlTypeRectangle>::type CTRectangle;
+typedef ControlTypeMap<libcamera::ControlTypeSize>::type CTSize;
+typedef ControlTypeMap<libcamera::ControlTypeUnsigned16>::type CTUnsigned16;
+typedef ControlTypeMap<libcamera::ControlTypeUnsigned32>::type CTUnsigned32;
+typedef ControlTypeMap<libcamera::ControlTypePoint>::type CTPoint;
 typedef ControlTypeMap<libcamera::ControlTypeSize>::type CTSize;
