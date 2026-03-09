@@ -34,6 +34,7 @@
 #include <image_transport/image_transport.hpp>
 
 #include <std_msgs/msg/header.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 
 #include <mrs_lib/param_loader.h>
@@ -82,6 +83,8 @@ namespace libcamera_ros_driver
     image_transport::CameraPublisher image_pub_;
     std::mutex image_pub_mutex_;
 
+    rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr exposure_time_sub_;
+
     // map parameter names to libcamera control id
     std::unordered_map<std::string, const libcamera::ControlId*> parameter_ids_;
     // parameters that are to be set for every request
@@ -89,6 +92,7 @@ namespace libcamera_ros_driver
 
     void declareControlParameters();
     void requestComplete(libcamera::Request* request);
+    void callbackExposureTime(const std_msgs::msg::Int32::SharedPtr msg);
 
     bool updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id);
   };
@@ -473,6 +477,13 @@ namespace libcamera_ros_driver
 
     //}
 
+    /* initialize subscribers //{ */
+
+    exposure_time_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
+        "~/exposure_time", 1, std::bind(&LibcameraRosDriver::callbackExposureTime, this, std::placeholders::_1));
+
+    //}
+
     // register callback
     camera_->requestCompleted.connect(this, &LibcameraRosDriver::requestComplete);
 
@@ -574,7 +585,7 @@ namespace libcamera_ros_driver
     // verify parameter type and dimension against default
     const libcamera::ControlInfo& ci = camera_->controls().at(id);
 
-    if (value.type() != id->type())
+    if (value.type() != id->type()) 
     {
       RCLCPP_ERROR_STREAM(node_->get_logger(), id->name() << " : Parameter types mismatch, expected '" << std::to_string(id->type()).c_str() << "', got '"
                                                           << std::to_string(value.type()).c_str() << "'");
@@ -600,6 +611,25 @@ namespace libcamera_ros_driver
 
     parameters_[id->id()] = value;
     return true;
+  }
+
+  //}
+
+  /* callbackExposureTime() //{ */
+
+  void LibcameraRosDriver::callbackExposureTime(const std_msgs::msg::Int32::SharedPtr msg)
+  {
+    if (!parameter_ids_.count("ExposureTime"))
+    {
+      RCLCPP_WARN(node_->get_logger(), "ExposureTime control not available on this camera");
+      return;
+    }
+
+    std::scoped_lock lock(request_lock_);
+    if (!updateControlParameter(pv_to_cv(msg->data, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]))
+      RCLCPP_ERROR_STREAM(node_->get_logger(), "Failed to set ExposureTime to " << msg->data);
+    else
+      RCLCPP_INFO_STREAM(node_->get_logger(), "ExposureTime set to " << msg->data << " us");
   }
 
   //}
@@ -683,6 +713,8 @@ namespace libcamera_ros_driver
 
     // queue the request again for the next frame
     request->reuse(libcamera::Request::ReuseBuffers);
+    for (const auto& [id, value] : parameters_)
+      request->controls().set(id, value);
     camera_->queueRequest(request);
   }
 
