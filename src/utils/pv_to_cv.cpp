@@ -30,6 +30,11 @@ libcamera::ControlValue pv_to_cv(const bool& parameter)
   return {parameter};
 }
 
+libcamera::ControlValue pv_to_cv(const bool& parameter, const libcamera::ControlType& /*type*/)
+{
+  return {parameter};
+}
+
 libcamera::ControlValue pv_to_cv(const int& parameter, const libcamera::ControlType& type)
 {
   if (type == libcamera::ControlTypeInteger32)
@@ -41,6 +46,11 @@ libcamera::ControlValue pv_to_cv(const int& parameter, const libcamera::ControlT
 }
 
 libcamera::ControlValue pv_to_cv(const double& parameter)
+{
+  return {CTFloat(parameter)};
+}
+
+libcamera::ControlValue pv_to_cv(const double& parameter, const libcamera::ControlType& /*type*/)
 {
   return {CTFloat(parameter)};
 }

@@ -35,6 +35,7 @@
 
 #include <std_msgs/msg/header.hpp>
 #include <std_msgs/msg/int32.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 
 #include <mrs_lib/param_loader.h>
@@ -84,6 +85,7 @@ namespace libcamera_ros_driver
     std::mutex image_pub_mutex_;
 
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr exposure_time_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr analogue_gain_sub_;
 
     // map parameter names to libcamera control id
     std::unordered_map<std::string, const libcamera::ControlId*> parameter_ids_;
@@ -93,6 +95,7 @@ namespace libcamera_ros_driver
     void declareControlParameters();
     void requestComplete(libcamera::Request* request);
     void callbackExposureTime(const std_msgs::msg::Int32::SharedPtr msg);
+    void callbackAnalogueGain(const std_msgs::msg::Float32::SharedPtr msg);
 
     bool updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id);
   };
@@ -482,6 +485,9 @@ namespace libcamera_ros_driver
     exposure_time_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
         "~/exposure_time", 1, std::bind(&LibcameraRosDriver::callbackExposureTime, this, std::placeholders::_1));
 
+    analogue_gain_sub_ = node_->create_subscription<std_msgs::msg::Float32>(
+        "~/analogue_gain", 1, std::bind(&LibcameraRosDriver::callbackAnalogueGain, this, std::placeholders::_1));
+
     //}
 
     // register callback
@@ -630,6 +636,25 @@ namespace libcamera_ros_driver
       RCLCPP_ERROR_STREAM(node_->get_logger(), "Failed to set ExposureTime to " << msg->data);
     else
       RCLCPP_INFO_STREAM(node_->get_logger(), "ExposureTime set to " << msg->data << " us");
+  }
+
+  //}
+
+  /* callbackAnalogueGain() //{ */
+
+  void LibcameraRosDriver::callbackAnalogueGain(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    if (!parameter_ids_.count("AnalogueGain"))
+    {
+      RCLCPP_WARN(node_->get_logger(), "AnalogueGain control not available on this camera");
+      return;
+    }
+
+    std::scoped_lock lock(request_lock_);
+    if (!updateControlParameter(pv_to_cv(double(msg->data), parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]))
+      RCLCPP_ERROR_STREAM(node_->get_logger(), "Failed to set AnalogueGain to " << msg->data);
+    else
+      RCLCPP_INFO_STREAM(node_->get_logger(), "AnalogueGain set to " << msg->data);
   }
 
   //}
