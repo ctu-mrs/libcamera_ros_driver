@@ -483,10 +483,10 @@ namespace libcamera_ros_driver
     /* initialize subscribers //{ */
 
     exposure_time_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
-        "~/exposure_time", 1, std::bind(&LibcameraRosDriver::callbackExposureTime, this, std::placeholders::_1));
+        "~/expose_us", 1, std::bind(&LibcameraRosDriver::callbackExposureTime, this, std::placeholders::_1));
 
     analogue_gain_sub_ = node_->create_subscription<std_msgs::msg::Float32>(
-        "~/analogue_gain", 1, std::bind(&LibcameraRosDriver::callbackAnalogueGain, this, std::placeholders::_1));
+        "~/gain_db", 1, std::bind(&LibcameraRosDriver::callbackAnalogueGain, this, std::placeholders::_1));
 
     //}
 
