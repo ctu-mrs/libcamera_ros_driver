@@ -187,6 +187,10 @@ def generate_launch_description():
             ('~/image_raw', '~/image_raw'),
             ('~/camera_info', '~/camera_info'),
         ],
+
+        extra_arguments=[
+            {'use_intra_process_comms': True}
+        ],
     )
 
     load_into_existing = LoadComposableNodes(
@@ -211,7 +215,6 @@ def generate_launch_description():
         # prefix=['debug_roslaunch ' + os.ttyname(sys.stdout.fileno())],
         composable_node_descriptions=[default_node],
         parameters=[
-            {'use_intra_process_comms': True},
             {'thread_num': os.cpu_count()},
             {'use_sim_time': use_sim_time}
         ],
