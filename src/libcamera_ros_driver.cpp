@@ -46,6 +46,36 @@
 namespace libcamera_ros_driver
 {
 
+  /* getCameraManager() //{ */
+
+  // libcamera forbids more than one CameraManager per process (CameraManager ctor
+  // calls LOG(Camera, Fatal) -> abort if a second is created). To run several camera
+  // nodes in one component container (e.g. a true stereo pair sharing a process for
+  // coherent timestamps), they must share a single manager. This returns a process-wide
+  // instance, started once on first use and stopped (via ~CameraManager) when the last
+  // node releases its shared_ptr.
+  // ponytail: weak_ptr + mutex, the simplest correct lifetime. Upgrade only if start/stop
+  // ever needs to be decoupled from node lifetime.
+  static std::shared_ptr<libcamera::CameraManager> getCameraManager()
+  {
+    static std::mutex mtx;
+    static std::weak_ptr<libcamera::CameraManager> weak;
+
+    std::scoped_lock lock(mtx);
+
+    if (auto cm = weak.lock())
+      return cm;
+
+    auto cm = std::make_shared<libcamera::CameraManager>();
+    if (cm->start() != 0)
+      throw std::runtime_error("Failed to start libcamera CameraManager");
+
+    weak = cm;
+    return cm;
+  }
+
+  //}
+
   /* class LibcameraRosDriver //{ */
 
   class LibcameraRosDriver : public mrs_lib::Node
@@ -58,7 +88,7 @@ namespace libcamera_ros_driver
     rclcpp::Node::SharedPtr node_;
     void initialize();
 
-    libcamera::CameraManager camera_manager_;
+    std::shared_ptr<libcamera::CameraManager> camera_manager_;
     std::shared_ptr<libcamera::Camera> camera_;
     libcamera::Stream* stream_;
     std::shared_ptr<libcamera::FrameBufferAllocator> allocator_;
@@ -158,9 +188,9 @@ namespace libcamera_ros_driver
       exit(1);
     }
 
-    // start camera manager and check for cameras
-    camera_manager_.start();
-    if (camera_manager_.cameras().empty())
+    // start (or join) the process-wide camera manager and check for cameras
+    camera_manager_ = getCameraManager();
+    if (camera_manager_->cameras().empty())
     {
       RCLCPP_ERROR(this_node().get_logger(), "no cameras available");
       rclcpp::shutdown();
@@ -188,9 +218,9 @@ namespace libcamera_ros_driver
 
       RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
 
-      for (size_t i = 0; i < camera_manager_.cameras().size(); i++)
+      for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
       {
-        available_cameras.push_back(camera_manager_.cameras().at(i)->id());
+        available_cameras.push_back(camera_manager_->cameras().at(i)->id());
       }
 
       for (size_t i = 0; i < available_cameras.size(); i++)
@@ -205,20 +235,20 @@ namespace libcamera_ros_driver
       }
     }
 
-    if (camera_id >= int(camera_manager_.cameras().size()))
+    if (camera_id >= int(camera_manager_->cameras().size()))
     {
-      RCLCPP_INFO_STREAM(this_node().get_logger(), camera_manager_);
+      RCLCPP_INFO_STREAM(this_node().get_logger(), *camera_manager_);
       RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with id " << camera_name << " does not exist");
       rclcpp::shutdown();
       exit(1);
     }
 
-    camera_ = camera_manager_.cameras().at(camera_id);
+    camera_ = camera_manager_->cameras().at(camera_id);
     RCLCPP_INFO_STREAM(this_node().get_logger(), "Use camera by id: " << camera_id);
 
     if (!camera_)
     {
-      RCLCPP_INFO_STREAM(this_node().get_logger(), camera_manager_);
+      RCLCPP_INFO_STREAM(this_node().get_logger(), *camera_manager_);
       RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with name " << camera_name << " does not exist");
       rclcpp::shutdown();
       exit(1);
@@ -538,7 +568,8 @@ namespace libcamera_ros_driver
     }
 
     camera_->release();
-    camera_manager_.stop();
+    // Do not stop the manager here: it is shared. Dropping our shared_ptr (member
+    // destruction) stops it only once the last camera node is gone.
 
     for (const auto& e : buffer_info_)
     {

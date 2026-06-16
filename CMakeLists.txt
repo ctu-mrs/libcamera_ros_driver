@@ -98,6 +98,12 @@ install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 
+# python helper scripts, runnable via `ros2 run libcamera_ros_driver <script>.py`
+install(PROGRAMS
+  scripts/check_stereo_sync.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_export_libraries(
   ${LIBRARIES}
 )
