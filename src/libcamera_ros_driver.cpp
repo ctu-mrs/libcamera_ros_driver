@@ -253,7 +253,7 @@ namespace libcamera_ros_driver
       // auto select first common pixel format
       scfg.pixelFormat = common_fmt.front(); // get pixel format from provided string
       RCLCPP_INFO_STREAM(node_->get_logger(), stream_formats);
-      RCLCPP_WARN_STREAM(node_->get_logger(), "No pixel format selected, using default: \"" << scfg.pixelFormat << "\"");
+      RCLCPP_WARN_STREAM(node_->get_logger(), "No pixel format selected, using default: "" << scfg.pixelFormat << """);
       RCLCPP_WARN_STREAM(node_->get_logger(), "Set parameter 'pixel_format' to silent this warning");
     } else
     {
@@ -263,7 +263,7 @@ namespace libcamera_ros_driver
       if (!format_requested.isValid())
       {
         RCLCPP_INFO_STREAM(node_->get_logger(), stream_formats);
-        RCLCPP_ERROR_STREAM(node_->get_logger(), "Invalid pixel format: \"" << pixel_format << "\"");
+        RCLCPP_ERROR_STREAM(node_->get_logger(), "Invalid pixel format: "" << pixel_format << """);
         rclcpp::shutdown();
         return;
       }
@@ -272,7 +272,7 @@ namespace libcamera_ros_driver
       if (std::find(common_fmt.begin(), common_fmt.end(), format_requested) == common_fmt.end())
       {
         RCLCPP_INFO_STREAM(node_->get_logger(), stream_formats);
-        RCLCPP_ERROR_STREAM(node_->get_logger(), "Unsupported pixel format \"" << pixel_format << "\"");
+        RCLCPP_ERROR_STREAM(node_->get_logger(), "Unsupported pixel format "" << pixel_format << """);
         rclcpp::shutdown();
         return;
       }
@@ -286,7 +286,7 @@ namespace libcamera_ros_driver
     {
       RCLCPP_INFO_STREAM(node_->get_logger(), scfg);
       scfg.size = scfg.formats().sizes(scfg.pixelFormat).back();
-      RCLCPP_WARN_STREAM(node_->get_logger(), "No dimensions selected, auto-selecting: \"" << scfg.size << "\"");
+      RCLCPP_WARN_STREAM(node_->get_logger(), "No dimensions selected, auto-selecting: "" << scfg.size << """);
       RCLCPP_WARN_STREAM(node_->get_logger(), "Set parameters 'resolution/width' and 'resolution/height' to silent this warning");
     } else
     {
@@ -310,7 +310,7 @@ namespace libcamera_ros_driver
       if (selected_scfg.size != scfg.size)
         RCLCPP_INFO_STREAM(node_->get_logger(), scfg);
 
-      RCLCPP_WARN_STREAM(node_->get_logger(), "Stream configuration adjusted from \"" << selected_scfg.toString() << "\" to \"" << scfg.toString() << "\"");
+      RCLCPP_WARN_STREAM(node_->get_logger(), "Stream configuration adjusted from "" << selected_scfg.toString() << "" to "" << scfg.toString() << """);
       break;
     }
 
@@ -330,63 +330,81 @@ namespace libcamera_ros_driver
       return;
     }
 
-    RCLCPP_INFO_STREAM(node_->get_logger(), "Camera \"" << camera_->id() << "\" configured with " << scfg.toString() << " stream");
+    RCLCPP_INFO_STREAM(node_->get_logger(), "Camera "" << camera_->id() << "" configured with " << scfg.toString() << " stream");
     declareControlParameters();
 
     int param_int;
     float param_float;
     std::string param_string;
-    bool param_bool;
+    // bool param_bool; // Removed
     std::vector<int64_t> param_vector_int;
 
-    if (param_loader.loadParam("control/exposure_time", param_int) && parameter_ids_.count("ExposureTime"))
+    param_loader.loadParam("control/exposure_time", param_int, 20);
+    if (parameter_ids_.count("ExposureTime"))
       updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
 
-    if (param_loader.loadParam("control/fps", param_float) && parameter_ids_.count("FrameDurationLimits"))
+    param_loader.loadParam("control/fps", param_float, 20.0f);
+    if (parameter_ids_.count("FrameDurationLimits"))
     {
       int64_t frame_time = 1000000 / param_float;
       updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    if (param_loader.loadParam("control/ae_constraint_mode", param_string) && parameter_ids_.count("AeConstraintMode"))
+    param_loader.loadParam("control/ae_constraint_mode", param_string, std::string("normal"));
+    if (parameter_ids_.count("AeConstraintMode"))
       updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
 
-    if (param_loader.loadParam("control/brightness", param_float) && parameter_ids_.count("Brightness"))
+    param_loader.loadParam("control/brightness", param_float, 0.0f);
+    if (parameter_ids_.count("Brightness"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
 
-    if (param_loader.loadParam("control/sharpness", param_float) && parameter_ids_.count("Sharpness"))
+    param_loader.loadParam("control/sharpness", param_float, 1.0f);
+    if (parameter_ids_.count("Sharpness"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
 
-    if (param_loader.loadParam("control/awb_enable", param_bool) && parameter_ids_.count("AwbEnable"))
-      updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
+    std::string param_awb_enable_str = "true";
+    param_loader.loadParam("control/awb_enable", param_awb_enable_str, std::string("true"));
+    bool param_awb_enable_bool = (param_awb_enable_str == "true");
+    if (parameter_ids_.count("AwbEnable"))
+      updateControlParameter(pv_to_cv(param_awb_enable_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
 
     /* updateControlParameter<std::vector<float>>(std::string("control.colour_gains"), parameter_ids_["ColourGains"]); */
-    if (param_loader.loadParam("control/ae_enable", param_bool) && parameter_ids_.count("AeEnable"))
-      updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
+    std::string param_ae_enable_str = "true";
+    param_loader.loadParam("control/ae_enable", param_ae_enable_str, std::string("true"));
+    bool param_ae_enable_bool = (param_ae_enable_str == "true");
+    if (parameter_ids_.count("AeEnable"))
+      updateControlParameter(pv_to_cv(param_ae_enable_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
 
-    if (param_loader.loadParam("control/saturation", param_float) && parameter_ids_.count("Saturation"))
+    param_loader.loadParam("control/saturation", param_float, 1.0f);
+    if (parameter_ids_.count("Saturation"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
 
-    if (param_loader.loadParam("control/contrast", param_float) && parameter_ids_.count("Contrast"))
+    param_loader.loadParam("control/contrast", param_float, 1.0f);
+    if (parameter_ids_.count("Contrast"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
 
-    if (param_loader.loadParam("control/exposure_value", param_float) && parameter_ids_.count("ExposureValue"))
+    param_loader.loadParam("control/exposure_value", param_float, 0.0f);
+    if (parameter_ids_.count("ExposureValue"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
 
-    if (param_loader.loadParam("control/analogue_gain", param_float) && parameter_ids_.count("AnalogueGain"))
+    param_loader.loadParam("control/analogue_gain", param_float, 1.0f);
+    if (parameter_ids_.count("AnalogueGain"))
       updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
 
-    if (param_loader.loadParam("control/awb_mode", param_string) && parameter_ids_.count("AwbMode"))
+    param_loader.loadParam("control/awb_mode", param_string, std::string("auto"));
+    if (parameter_ids_.count("AwbMode"))
       updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
 
-    if (param_loader.loadParam("control/ae_metering_mode", param_string) && parameter_ids_.count("AeMeteringMode"))
+    param_loader.loadParam("control/ae_metering_mode", param_string, std::string("centre-weighted"));
+    if (parameter_ids_.count("AeMeteringMode"))
       updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
 
     if (param_loader.loadParam("control/scaler_crop", param_vector_int) && parameter_ids_.count("ScalerCrop"))
       updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
-    if (param_loader.loadParam("control/control", param_string) && parameter_ids_.count("AeExposureMode"))
+    param_loader.loadParam("control/ae_exposure_mode", param_string, std::string("normal"));
+    if (parameter_ids_.count("AeExposureMode"))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
     // allocate stream buffers and create one request per buffer
@@ -646,34 +664,34 @@ namespace libcamera_ros_driver
       hdr.frame_id = frame_id_;
       const libcamera::StreamConfiguration& cfg = stream_->configuration();
 
-      sensor_msgs::msg::Image image_msg;
-
       if (format_type(cfg.pixelFormat) == FormatType::RAW)
       {
         // raw uncompressed image
         assert(buffer_info_[buffer].size == bytesused);
-        image_msg.header = hdr;
-        image_msg.width = cfg.size.width;
-        image_msg.height = cfg.size.height;
-        image_msg.step = cfg.stride;
-        image_msg.encoding = get_ros_encoding(cfg.pixelFormat);
-        image_msg.is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-        image_msg.data.resize(buffer_info_[buffer].size);
 
-        memcpy(image_msg.data.data(), buffer_info_[buffer].data, buffer_info_[buffer].size);
+        auto image_msg = std::make_unique<sensor_msgs::msg::Image>();
+        image_msg->header = hdr;
+        image_msg->width = cfg.size.width;
+        image_msg->height = cfg.size.height;
+        image_msg->step = cfg.stride;
+        image_msg->encoding = get_ros_encoding(cfg.pixelFormat);
+        image_msg->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+        image_msg->data.resize(buffer_info_[buffer].size);
+
+        memcpy(image_msg->data.data(), buffer_info_[buffer].data, buffer_info_[buffer].size);
+
+        auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_->getCameraInfo());
+        cinfo_msg->header = hdr;
+
+        {
+          std::scoped_lock lock(image_pub_mutex_);
+          image_pub_.publish(std::move(image_msg), std::move(cinfo_msg));
+        }
 
       } else
       {
         RCLCPP_ERROR_STREAM(node_->get_logger(), "Unsupported pixel format: " << stream_->configuration().pixelFormat.toString());
         return;
-      }
-
-      sensor_msgs::msg::CameraInfo cinfo_msg = cinfo_->getCameraInfo();
-      cinfo_msg.header = hdr;
-
-      {
-        std::scoped_lock lock(image_pub_mutex_);
-        image_pub_.publish(image_msg, cinfo_msg);
       }
 
     } else if (request->status() == libcamera::Request::RequestCancelled)

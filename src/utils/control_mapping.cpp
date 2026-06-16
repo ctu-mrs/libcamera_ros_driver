@@ -7,10 +7,10 @@
 libcamera::controls::AeExposureModeEnum get_ae_exposure_mode(const std::string& mode)
 {
   static const std::unordered_map<std::string, libcamera::controls::AeExposureModeEnum> mode_map = {
-      {"normal", libcamera::controls::AeExposureModeEnum::ExposureNormal},
-      {"short", libcamera::controls::AeExposureModeEnum::ExposureShort},
-      {"long", libcamera::controls::AeExposureModeEnum::ExposureLong},
-      {"custom", libcamera::controls::AeExposureModeEnum::ExposureCustom},
+      {"normal", (libcamera::controls::AeExposureModeEnum)0},
+      {"short", (libcamera::controls::AeExposureModeEnum)1},
+      {"long", (libcamera::controls::AeExposureModeEnum)2},
+      {"custom", (libcamera::controls::AeExposureModeEnum)3},
   };
 
   try
@@ -27,10 +27,10 @@ libcamera::controls::AeExposureModeEnum get_ae_exposure_mode(const std::string& 
 libcamera::controls::AeMeteringModeEnum get_ae_metering_mode(const std::string& mode)
 {
   static const std::unordered_map<std::string, libcamera::controls::AeMeteringModeEnum> mode_map = {
-      {"centre-weighted", libcamera::controls::AeMeteringModeEnum::MeteringCentreWeighted},
-      {"spot", libcamera::controls::AeMeteringModeEnum::MeteringSpot},
-      {"matrix", libcamera::controls::AeMeteringModeEnum::MeteringMatrix},
-      {"custom", libcamera::controls::AeMeteringModeEnum::MeteringCustom},
+      {"centre-weighted", (libcamera::controls::AeMeteringModeEnum)0},
+      {"spot", (libcamera::controls::AeMeteringModeEnum)1},
+      {"matrix", (libcamera::controls::AeMeteringModeEnum)2},
+      {"custom", (libcamera::controls::AeMeteringModeEnum)3},
   };
 
   try
@@ -47,10 +47,10 @@ libcamera::controls::AeMeteringModeEnum get_ae_metering_mode(const std::string& 
 libcamera::controls::AeConstraintModeEnum get_ae_constraint_mode(const std::string& mode)
 {
   static const std::unordered_map<std::string, libcamera::controls::AeConstraintModeEnum> mode_map = {
-      {"normal", libcamera::controls::AeConstraintModeEnum::ConstraintNormal},
-      {"highlight", libcamera::controls::AeConstraintModeEnum::ConstraintHighlight},
-      {"shadows", libcamera::controls::AeConstraintModeEnum::ConstraintShadows},
-      {"custom", libcamera::controls::AeConstraintModeEnum::ConstraintCustom},
+      {"normal", (libcamera::controls::AeConstraintModeEnum)0},
+      {"highlight", (libcamera::controls::AeConstraintModeEnum)1},
+      {"shadows", (libcamera::controls::AeConstraintModeEnum)2},
+      {"custom", (libcamera::controls::AeConstraintModeEnum)3},
   };
 
   try
@@ -67,10 +67,10 @@ libcamera::controls::AeConstraintModeEnum get_ae_constraint_mode(const std::stri
 libcamera::controls::AwbModeEnum get_awb_mode(const std::string& mode)
 {
   static const std::unordered_map<std::string, libcamera::controls::AwbModeEnum> mode_map = {
-      {"auto", libcamera::controls::AwbModeEnum::AwbAuto},         {"incandescent", libcamera::controls::AwbModeEnum::AwbIncandescent},
-      {"tungsten", libcamera::controls::AwbModeEnum::AwbTungsten}, {"fluorescent", libcamera::controls::AwbModeEnum::AwbFluorescent},
-      {"indoor", libcamera::controls::AwbModeEnum::AwbIndoor},     {"daylight", libcamera::controls::AwbModeEnum::AwbDaylight},
-      {"cloudy", libcamera::controls::AwbModeEnum::AwbCloudy},     {"custom", libcamera::controls::AwbModeEnum::AwbCustom},
+      {"auto", (libcamera::controls::AwbModeEnum)0},         {"incandescent", (libcamera::controls::AwbModeEnum)1},
+      {"tungsten", (libcamera::controls::AwbModeEnum)2}, {"fluorescent", (libcamera::controls::AwbModeEnum)3},
+      {"indoor", (libcamera::controls::AwbModeEnum)4},     {"daylight", (libcamera::controls::AwbModeEnum)5},
+      {"cloudy", (libcamera::controls::AwbModeEnum)6},     {"custom", (libcamera::controls::AwbModeEnum)7},
   };
 
   try
