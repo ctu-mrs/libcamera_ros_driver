@@ -78,6 +78,9 @@ namespace libcamera_ros_driver
     std::unordered_map<const libcamera::FrameBuffer*, buffer_info_t> buffer_info_;
 
     std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
+    // ponytail: cached once at init to avoid a per-frame copy + mutex inside the 60 Hz callback;
+    // does not reflect runtime recalibration via the set_camera_info service. Refresh on that service if ever needed.
+    sensor_msgs::msg::CameraInfo cinfo_msg_;
 
     image_transport::CameraPublisher image_pub_;
     std::mutex image_pub_mutex_;
@@ -483,6 +486,7 @@ namespace libcamera_ros_driver
 
     cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_->get_node_base_interface(), node_->get_node_services_interface(),
                                                                       node_->get_node_logging_interface(), camera_name, calib_url);
+    cinfo_msg_ = cinfo_->getCameraInfo();
 
     /* initialize publishers //{ */
 
@@ -666,8 +670,10 @@ namespace libcamera_ros_driver
 
       if (format_type(cfg.pixelFormat) == FormatType::RAW)
       {
+        const buffer_info_t& binfo = buffer_info_.at(buffer);
+
         // raw uncompressed image
-        assert(buffer_info_[buffer].size == bytesused);
+        assert(binfo.size == bytesused);
 
         auto image_msg = std::make_unique<sensor_msgs::msg::Image>();
         image_msg->header = hdr;
@@ -676,11 +682,11 @@ namespace libcamera_ros_driver
         image_msg->step = cfg.stride;
         image_msg->encoding = get_ros_encoding(cfg.pixelFormat);
         image_msg->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-        image_msg->data.resize(buffer_info_[buffer].size);
+        image_msg->data.resize(binfo.size);
 
-        memcpy(image_msg->data.data(), buffer_info_[buffer].data, buffer_info_[buffer].size);
+        memcpy(image_msg->data.data(), binfo.data, binfo.size);
 
-        auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_->getCameraInfo());
+        auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
         cinfo_msg->header = hdr;
 
         {
