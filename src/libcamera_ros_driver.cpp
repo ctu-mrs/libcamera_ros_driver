@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <string>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <linux/dma-buf.h>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -74,6 +76,7 @@ namespace libcamera_ros_driver
     {
       void* data;
       size_t size;
+      int fd;  // dmabuf fd, for cache-sync around CPU reads
     };
     std::unordered_map<const libcamera::FrameBuffer*, buffer_info_t> buffer_info_;
 
@@ -256,7 +259,7 @@ namespace libcamera_ros_driver
       // auto select first common pixel format
       scfg.pixelFormat = common_fmt.front(); // get pixel format from provided string
       RCLCPP_INFO_STREAM(node_->get_logger(), stream_formats);
-      RCLCPP_WARN_STREAM(node_->get_logger(), "No pixel format selected, using default: "" << scfg.pixelFormat << """);
+      RCLCPP_WARN_STREAM(node_->get_logger(), "No pixel format selected, using default: \"" << scfg.pixelFormat << "\"");
       RCLCPP_WARN_STREAM(node_->get_logger(), "Set parameter 'pixel_format' to silent this warning");
     } else
     {
@@ -266,7 +269,7 @@ namespace libcamera_ros_driver
       if (!format_requested.isValid())
       {
         RCLCPP_INFO_STREAM(node_->get_logger(), stream_formats);
-        RCLCPP_ERROR_STREAM(node_->get_logger(), "Invalid pixel format: "" << pixel_format << """);
+        RCLCPP_ERROR_STREAM(node_->get_logger(), "Invalid pixel format: \"" << pixel_format << "\"");
         rclcpp::shutdown();
         return;
       }
@@ -275,7 +278,7 @@ namespace libcamera_ros_driver
       if (std::find(common_fmt.begin(), common_fmt.end(), format_requested) == common_fmt.end())
       {
         RCLCPP_INFO_STREAM(node_->get_logger(), stream_formats);
-        RCLCPP_ERROR_STREAM(node_->get_logger(), "Unsupported pixel format "" << pixel_format << """);
+        RCLCPP_ERROR_STREAM(node_->get_logger(), "Unsupported pixel format \"" << pixel_format << "\"");
         rclcpp::shutdown();
         return;
       }
@@ -289,7 +292,7 @@ namespace libcamera_ros_driver
     {
       RCLCPP_INFO_STREAM(node_->get_logger(), scfg);
       scfg.size = scfg.formats().sizes(scfg.pixelFormat).back();
-      RCLCPP_WARN_STREAM(node_->get_logger(), "No dimensions selected, auto-selecting: "" << scfg.size << """);
+      RCLCPP_WARN_STREAM(node_->get_logger(), "No dimensions selected, auto-selecting: \"" << scfg.size << "\"");
       RCLCPP_WARN_STREAM(node_->get_logger(), "Set parameters 'resolution/width' and 'resolution/height' to silent this warning");
     } else
     {
@@ -313,7 +316,7 @@ namespace libcamera_ros_driver
       if (selected_scfg.size != scfg.size)
         RCLCPP_INFO_STREAM(node_->get_logger(), scfg);
 
-      RCLCPP_WARN_STREAM(node_->get_logger(), "Stream configuration adjusted from "" << selected_scfg.toString() << "" to "" << scfg.toString() << """);
+      RCLCPP_WARN_STREAM(node_->get_logger(), "Stream configuration adjusted from \"" << selected_scfg.toString() << "\" to \"" << scfg.toString() << "\"");
       break;
     }
 
@@ -333,7 +336,7 @@ namespace libcamera_ros_driver
       return;
     }
 
-    RCLCPP_INFO_STREAM(node_->get_logger(), "Camera "" << camera_->id() << "" configured with " << scfg.toString() << " stream");
+    RCLCPP_INFO_STREAM(node_->get_logger(), "Camera \"" << camera_->id() << "\" configured with " << scfg.toString() << " stream");
     declareControlParameters();
 
     int param_int;
@@ -403,7 +406,10 @@ namespace libcamera_ros_driver
     if (parameter_ids_.count("AeMeteringMode"))
       updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
 
-    if (param_loader.loadParam("control/scaler_crop", param_vector_int) && parameter_ids_.count("ScalerCrop"))
+    // scaler_crop is optional: empty default means "no crop", so a missing param is not an error
+    param_vector_int.clear();
+    param_loader.loadParam("control/scaler_crop", param_vector_int, std::vector<int64_t>{});
+    if (!param_vector_int.empty() && parameter_ids_.count("ScalerCrop"))
       updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
     param_loader.loadParam("control/ae_exposure_mode", param_string, std::string("normal"));
@@ -469,7 +475,7 @@ namespace libcamera_ros_driver
         return;
       }
 
-      buffer_info_[buffer.get()] = {data, buffer_length};
+      buffer_info_[buffer.get()] = {data, buffer_length, fd};
       if (request->addBuffer(stream_, buffer.get()) < 0)
       {
         RCLCPP_ERROR(node_->get_logger(), "Can't set buffer for request");
@@ -684,7 +690,13 @@ namespace libcamera_ros_driver
         image_msg->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
         image_msg->data.resize(binfo.size);
 
+        // Invalidate CPU cache for this dmabuf before reading. No-op on coherent buffers;
+        // on cached buffers it makes the read both correct and full-speed. ponytail: ignore ioctl errors, copy still works.
+        dma_buf_sync sync_start = {DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ};
+        ioctl(binfo.fd, DMA_BUF_IOCTL_SYNC, &sync_start);
         memcpy(image_msg->data.data(), binfo.data, binfo.size);
+        dma_buf_sync sync_end = {DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ};
+        ioctl(binfo.fd, DMA_BUF_IOCTL_SYNC, &sync_end);
 
         auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
         cinfo_msg->header = hdr;
