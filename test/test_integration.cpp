@@ -1,14 +1,15 @@
 // Integration test with a faked frame source.
 //
 // We cannot construct LibcameraRosDriver itself: its ctor -> initialize() acquires a real
-// camera and exit(1)s without one. So we exercise the *real* per-frame code that the driver
-// runs -- detail::fillImageMsg() (message assembly + the assign() copy) -- and push the
-// result through a *real* image_transport CameraPublisher/Subscriber, exactly like the
-// driver's publish path. Only the camera frame is synthetic.
+// camera and exit(1)s without one. So we exercise the *real* per-frame builders the driver
+// runs -- detail::fillImageMsg() (R16 passthrough) and detail::fillImageMsgMono8() (the
+// default MONO16->MONO8 narrowing) -- and push a built message through a *real* image_transport
+// CameraPublisher/Subscriber, exactly like the driver's publish path. Only the frame is synthetic.
 //
-// What this proves end-to-end:
-//   - fillImageMsg builds an Image whose width/height/step/encoding/data match the source
-//   - the assign() copy is byte-exact (no truncation / no zero-fill corruption)
+// What this proves:
+//   - the builders produce an Image whose width/height/step/encoding/data match the source
+//   - the copy / narrow is byte-exact (no truncation, no zero-fill corruption, no stride leak)
+//   - shift=8 on MSB-aligned data is correct (the production default; wrong shift = black image)
 //   - the image + camera_info travel over the transport and are received together
 //   - getNumSubscribers() reflects a real subscriber (the basis of the no-subscriber gate)
 
@@ -56,6 +57,32 @@ TEST(Mono8Narrowing, ShiftsAndPacks)
   ASSERT_EQ(msg->data.size(), static_cast<size_t>(w) * h);
   for (uint32_t i = 0; i < w * h; ++i)
     EXPECT_EQ(msg->data[i], static_cast<uint8_t>(i)) << "pixel " << i << " (stride padding leaked?)";
+}
+
+// Production default: PiSP delivers each sample MSB-aligned (10-bit value << 6 in a 16-bit
+// word), so shift=8 takes the top byte. This is the exact case where shift=2 produced an
+// all-black image -- guard it so that regression can't return.
+TEST(Mono8Narrowing, Shift8TakesTopByteMsbAligned)
+{
+  constexpr uint32_t w = 8, h = 2;
+  constexpr uint32_t stride = w * 2;  // tight, 2 bytes/px
+  std::vector<uint8_t> raw(static_cast<size_t>(stride) * h);
+  for (uint32_t i = 0; i < w * h; ++i)
+  {
+    const uint16_t v10 = static_cast<uint16_t>((i * 67) & 0x3FF);            // a 10-bit value
+    reinterpret_cast<uint16_t*>(raw.data())[i] = static_cast<uint16_t>(v10 << 6);  // MSB-aligned
+  }
+
+  std_msgs::msg::Header hdr;
+  auto msg = libcamera_ros_driver::detail::fillImageMsgMono8(hdr, w, h, stride, raw.data(), -1, 8);
+
+  ASSERT_EQ(msg->data.size(), static_cast<size_t>(w) * h);
+  for (uint32_t i = 0; i < w * h; ++i)
+  {
+    const uint16_t v10 = static_cast<uint16_t>((i * 67) & 0x3FF);
+    const uint8_t expected = static_cast<uint8_t>((v10 << 6) >> 8);  // top 8 bits = v10 >> 2
+    EXPECT_EQ(msg->data[i], expected) << "pixel " << i << " (wrong shift -> black image)";
+  }
 }
 
 class FrameRoundTrip : public ::testing::Test

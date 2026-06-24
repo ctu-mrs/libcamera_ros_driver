@@ -1,16 +1,18 @@
-// Performance gate for the libcamera_ros_driver hot path (requestComplete).
+// Performance gate for the libcamera_ros_driver per-frame work.
 //
-// The 60 Hz callback's CPU-bound work we control is copying one full frame out of
-// the (mmap'd) dmabuf into the outgoing message's std::vector<uint8_t>. These tests
-// reproduce exactly that memory work in isolation (no camera / ROS node needed, so
-// they run deterministically in CI) and assert:
-//   1. a single full-res frame copy fits comfortably inside the per-frame budget, and
-//   2. assign() (one uninitialized copy) is no slower than resize()+memcpy()
-//      (zero-fill then copy) -- i.e. the optimization holds.
+// The CPU-bound work we control per frame is moving one full frame out of the (mmap'd)
+// dmabuf into the outgoing message's std::vector<uint8_t> -- either a plain copy (R16
+// passthrough) or, by default (publish_mono8), a MONO16->MONO8 narrowing pass. These tests
+// reproduce exactly that memory work in isolation (no camera / ROS node needed, so they run
+// deterministically in CI) and assert:
+//   1. a full-res plain copy fits comfortably inside the 60 Hz per-frame budget,
+//   2. assign() (one uninitialized copy) is no slower than resize()+memcpy(), and
+//   3. the MONO16->MONO8 narrowing (the default hot path) also fits the budget -- catches an
+//      unvectorized / -O0 build of the inner shift loop.
 //
-// Budgets are deliberately generous: these gates exist to catch catastrophic
-// regressions (e.g. an -O0 build, or reintroducing a double frame-write), not to
-// micro-police nanoseconds, so they never flake on a loaded CI box.
+// Budgets are deliberately generous: these gates exist to catch catastrophic regressions
+// (e.g. an -O0 build, or reintroducing a double frame-write), not to micro-police
+// nanoseconds, so they never flake on a loaded CI box.
 
 #include <gtest/gtest.h>
 
@@ -67,6 +69,18 @@ namespace
     const auto t1 = Clock::now();
     EXPECT_EQ(data.size(), n);
     EXPECT_EQ(data.back(), src[n - 1]);
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
+  }
+
+  // MONO16 -> MONO8 narrowing: mirrors the inner loop of detail::fillImageMsgMono8 (the default
+  // hot path with publish_mono8). Reads n 16-bit samples, writes n 8-bit, shifting right.
+  double time_narrow(const uint16_t* src, uint8_t* dst, size_t n, int shift)
+  {
+    const auto t0 = Clock::now();
+    for (size_t i = 0; i < n; ++i)
+      dst[i] = static_cast<uint8_t>(src[i] >> shift);
+    const auto t1 = Clock::now();
+    EXPECT_EQ(dst[n - 1], static_cast<uint8_t>(src[n - 1] >> shift));  // defeat dead-store elision
     return std::chrono::duration<double, std::milli>(t1 - t0).count();
   }
 }  // namespace
@@ -126,4 +140,36 @@ TEST_F(FrameCopyPerf, AssignNotSlowerThanResizeMemcpy)
   EXPECT_LE(am, rm * 1.05)
       << "assign median " << am << " ms is slower than resize+memcpy " << rm
       << " ms -- the zero-fill-elimination optimization regressed.";
+}
+
+// Narrowing perf uses a 16-bit source (2 bytes/px); kFrameBytes is the pixel count.
+class Mono8NarrowPerf : public ::testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    src_.resize(kFrameBytes);  // kFrameBytes pixels of 16-bit input
+    dst_.resize(kFrameBytes);
+    for (size_t i = 0; i < src_.size(); ++i)
+      src_[i] = static_cast<uint16_t>((i & 0x3FF) << 6);  // MSB-aligned 10-bit, as PiSP delivers
+  }
+  std::vector<uint16_t> src_;
+  std::vector<uint8_t> dst_;
+};
+
+// Gate 3: a full-res MONO16->MONO8 narrow (the default per-frame work) fits the 60 Hz budget.
+TEST_F(Mono8NarrowPerf, NarrowWithin60HzBudget)
+{
+  std::vector<double> samples;
+  samples.reserve(kIters);
+  for (int i = 0; i < kWarmup; ++i)
+    time_narrow(src_.data(), dst_.data(), src_.size(), 8);
+  for (int i = 0; i < kIters; ++i)
+    samples.push_back(time_narrow(src_.data(), dst_.data(), src_.size(), 8));
+
+  const double med = median(samples);
+  RecordProperty("narrow_median_ms", std::to_string(med));
+  EXPECT_LT(med, kFrameBudgetMs)
+      << "mono8 narrow median " << med << " ms exceeds " << kFrameBudgetMs
+      << " ms budget (60 Hz = 16.67 ms/frame). Likely an unoptimized build of the shift loop.";
 }
