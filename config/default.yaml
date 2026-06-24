@@ -39,6 +39,12 @@ libcamera_ros_driver:
   mono8_shift: 8 # bits to shift right when narrowing.
                  # Image too dark/bright? This is the knob (no rebuild needed).
 
+  # dmabuf cache invalidate/flush around each frame's CPU read. Required for correct reads of
+  # NON-coherent capture buffers. If the Pi's buffers are coherent, this is pure CPU overhead
+  # (cache ops over the whole frame, every frame). Set false to measure the saving on-device --
+  # but ONLY keep it false if the images stay intact (no torn/stale frames, no artifacts).
+  dmabuf_sync: true
+
   # frame_id and calib_url parameters are set using launch file
 
   ## --------------------------------------------------------------

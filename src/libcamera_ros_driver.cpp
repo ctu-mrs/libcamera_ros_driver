@@ -114,6 +114,12 @@ namespace libcamera_ros_driver
     bool mono8_ = false;
     int mono8_shift_ = 8;  // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
 
+    // dmabuf cache invalidate/flush around the CPU read of each frame. Necessary for correct
+    // reads of NON-coherent capture buffers; pure overhead (cache ops over the whole frame) if
+    // the buffers are already coherent. Exposed so it can be A/B'd on-device for the CPU it costs.
+    // ponytail: default ON = always correct. Turn off only after confirming images stay intact.
+    bool dmabuf_sync_ = true;
+
     bool _use_ros_time_ = false;
 
     rclcpp::Duration start_time_offset_{0, 0};
@@ -213,6 +219,7 @@ namespace libcamera_ros_driver
     param_loader.loadParam("publish_mono8", mono8_, false);
     param_loader.loadParam("mono8_shift", mono8_shift_, 8);
     mono8_shift_ = std::clamp(mono8_shift_, 0, 15);  // a uint16 shift outside [0,15] is UB
+    param_loader.loadParam("dmabuf_sync", dmabuf_sync_, true);
 
     if (!param_loader.loadedSuccessfully())
     {
@@ -512,6 +519,10 @@ namespace libcamera_ros_driver
       RCLCPP_WARN_STREAM(node_->get_logger(), "publish_mono8 requested but source encoding is '" << encoding_ << "', not mono16; publishing unchanged");
     }
 
+    if (!dmabuf_sync_)
+      RCLCPP_WARN(node_->get_logger(), "dmabuf_sync disabled: skipping cache invalidate around frame reads. "
+                                       "Verify images are intact -- non-coherent buffers can read stale/torn data.");
+
     // allocate stream buffers and create one request per buffer
     stream_ = scfg.stream();
 
@@ -781,10 +792,12 @@ namespace libcamera_ros_driver
 
           // build the Image (single copy + dmabuf cache-sync); see frame_msg.h.
           // ponytail: ignore ioctl errors inside, the copy still works.
+          // fd < 0 makes fillImageMsg* skip the cache-sync ioctls -- that's our disable switch.
+          const int sync_fd = dmabuf_sync_ ? binfo.fd : -1;
           auto image_msg = mono8_ ? detail::fillImageMsgMono8(hdr, img_width_, img_height_, src_stride_,
-                                                              static_cast<const uint8_t*>(binfo.data), binfo.fd, mono8_shift_)
+                                                              static_cast<const uint8_t*>(binfo.data), sync_fd, mono8_shift_)
                                   : detail::fillImageMsg(hdr, img_width_, img_height_, img_step_, encoding_,
-                                                         static_cast<const uint8_t*>(binfo.data), binfo.size, binfo.fd);
+                                                         static_cast<const uint8_t*>(binfo.data), binfo.size, sync_fd);
 
           auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
           cinfo_msg->header = hdr;
