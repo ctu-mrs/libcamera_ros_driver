@@ -140,17 +140,25 @@ namespace libcamera_ros_driver
 
     image_transport::CameraPublisher image_pub_;
 
-    // Publish offload: the libcamera requestCompleted callback runs on the CameraManager's
-    // single (per-process, shared in stereo) thread. Doing publish() there serializes both
-    // cameras onto one core. We hand the finished message to a per-node worker thread so the
-    // heavy serialization runs in parallel, off the camera thread.
-    // ponytail: single-slot latest-frame-wins. A queue would only add latency for a live
-    // camera -- if the publisher falls behind, the freshest frame is the only one worth sending.
+    // Frame offload: the libcamera requestCompleted callback runs on the CameraManager's single
+    // (per-process, shared in stereo) thread, so doing the per-frame work there serializes both
+    // cameras onto one core. We hand the RAW capture buffer to a per-node worker thread, which
+    // does the copy + mono8 narrow + serialize + publish off the camera thread (parallel across
+    // cameras) and then re-queues the request -- the buffer must stay intact until it has copied.
+    // ponytail: single-slot latest-frame-wins. A queue would only add latency for a live camera;
+    // a superseded frame's request is re-queued immediately so its buffer is never leaked.
     std::thread publish_thread_;
     std::mutex publish_mutex_;
     std::condition_variable publish_cv_;
-    sensor_msgs::msg::Image::UniquePtr pending_image_;
-    sensor_msgs::msg::CameraInfo::UniquePtr pending_info_;
+    struct PendingFrame
+    {
+      libcamera::Request* request = nullptr;  // re-queued by the worker once the buffer is copied
+      const uint8_t* data = nullptr;
+      size_t size = 0;
+      int fd = -1;  // dmabuf fd for cache-sync, or -1 to skip
+      std_msgs::msg::Header hdr;
+    };
+    PendingFrame pending_;
     bool publish_stop_ = false;
     void publishLoop();
 
@@ -636,7 +644,17 @@ namespace libcamera_ros_driver
 
   LibcameraRosDriver::~LibcameraRosDriver()
   {
-    camera_->requestCompleted.disconnect();
+    camera_->requestCompleted.disconnect();  // no more frames handed off after this
+
+    // Stop the worker BEFORE the camera: the worker calls queueRequest, so it must be done
+    // before we stop the camera. Any frame still pending is dropped; camera stop reclaims it.
+    {
+      std::scoped_lock lock(publish_mutex_);
+      publish_stop_ = true;
+    }
+    publish_cv_.notify_one();
+    if (publish_thread_.joinable())
+      publish_thread_.join();
 
     {
       std::scoped_lock lock(request_lock_);
@@ -650,15 +668,6 @@ namespace libcamera_ros_driver
     camera_->release();
     // Do not stop the manager here: it is shared. Dropping our shared_ptr (member
     // destruction) stops it only once the last camera node is gone.
-
-    // camera is stopped, so no more frames will be handed off: wake and join the worker
-    {
-      std::scoped_lock lock(publish_mutex_);
-      publish_stop_ = true;
-    }
-    publish_cv_.notify_one();
-    if (publish_thread_.joinable())
-      publish_thread_.join();
 
     for (const auto& e : buffer_info_)
     {
@@ -758,9 +767,13 @@ namespace libcamera_ros_driver
   {
     std::scoped_lock lock(request_lock_);
 
-    // Everything that could throw or early-return lives in this try; the re-queue below runs
-    // unconditionally afterwards. A request that leaves here without being re-queued leaks a
-    // buffer from the finite pool, and once the pool drains the camera silently stops forever.
+    // If we hand the buffer to the worker, the worker re-queues the request (after it has copied
+    // out of the buffer); we must NOT re-queue here or the buffer would be reused mid-read. Every
+    // other path re-queues below, so a request can never leave without going back to the pool --
+    // a leaked request drains the finite pool and silently stops the camera forever.
+    bool handed_off = false;
+    libcamera::Request* dropped = nullptr;
+
     try
     {
       if (request->status() == libcamera::Request::RequestComplete)
@@ -770,7 +783,7 @@ namespace libcamera_ros_driver
         const libcamera::FrameBuffer* buffer = request->findBuffer(stream_);
         const libcamera::FrameMetadata& metadata = buffer->metadata();
 
-        // Only pay for the build+publish when the format is raw AND someone is listening.
+        // Only hand off for the expensive work when the format is raw AND someone is listening.
         if (is_raw_ && image_pub_.getNumSubscribers() > 0)
         {
           std_msgs::msg::Header hdr;
@@ -790,25 +803,20 @@ namespace libcamera_ros_driver
 
           const buffer_info_t& binfo = buffer_info_.at(buffer);
 
-          // build the Image (single copy + dmabuf cache-sync); see frame_msg.h.
-          // ponytail: ignore ioctl errors inside, the copy still works.
-          // fd < 0 makes fillImageMsg* skip the cache-sync ioctls -- that's our disable switch.
-          const int sync_fd = dmabuf_sync_ ? binfo.fd : -1;
-          auto image_msg = mono8_ ? detail::fillImageMsgMono8(hdr, img_width_, img_height_, src_stride_,
-                                                              static_cast<const uint8_t*>(binfo.data), sync_fd, mono8_shift_)
-                                  : detail::fillImageMsg(hdr, img_width_, img_height_, img_step_, encoding_,
-                                                         static_cast<const uint8_t*>(binfo.data), binfo.size, sync_fd);
-
-          auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
-          cinfo_msg->header = hdr;
-
-          // hand off to the worker thread; latest-frame-wins (drop any frame it hasn't taken yet)
+          // hand the RAW buffer to the worker (latest-frame-wins). The copy/narrow + publish run
+          // there, off this shared camera thread. fd < 0 tells the worker to skip the cache-sync.
           {
             std::scoped_lock pub_lock(publish_mutex_);
-            pending_image_ = std::move(image_msg);
-            pending_info_ = std::move(cinfo_msg);
+            if (pending_.request)
+              dropped = pending_.request;  // worker hasn't taken the previous frame -> we drop it
+            pending_.request = request;
+            pending_.data = static_cast<const uint8_t*>(binfo.data);
+            pending_.size = binfo.size;
+            pending_.fd = dmabuf_sync_ ? binfo.fd : -1;
+            pending_.hdr = hdr;
           }
           publish_cv_.notify_one();
+          handed_off = true;
         } else if (!is_raw_)
         {
           RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
@@ -827,12 +835,21 @@ namespace libcamera_ros_driver
       RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "requestComplete dropped a frame: " << e.what());
     }
 
-    // ALWAYS re-queue, on every path, so the buffer pool can never starve.
-    request->reuse(libcamera::Request::ReuseBuffers);
-    if (camera_->queueRequest(request) < 0)
+    // A superseded (dropped) frame's request is re-queued here -- the worker will never see it.
+    if (dropped)
     {
-      RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
-                                   "queueRequest failed -- camera is no longer accepting buffers (stalled/stopped)");
+      dropped->reuse(libcamera::Request::ReuseBuffers);
+      if (camera_->queueRequest(dropped) < 0)
+        RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "queueRequest (dropped frame) failed");
+    }
+
+    // Re-queue THIS request unless the worker now owns it (it re-queues after copying).
+    if (!handed_off)
+    {
+      request->reuse(libcamera::Request::ReuseBuffers);
+      if (camera_->queueRequest(request) < 0)
+        RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                                     "queueRequest failed -- camera is no longer accepting buffers (stalled/stopped)");
     }
   }
 
@@ -840,24 +857,50 @@ namespace libcamera_ros_driver
 
   /* publishLoop() //{ */
 
-  // Drains the single-slot handoff and runs the heavy publish() off the camera thread.
+  // Drains the single-slot handoff and runs the heavy per-frame work (copy + mono8 narrow +
+  // serialize + publish) off the shared camera thread. Re-queues the request as soon as the
+  // buffer has been copied, so capture continues while we serialize/publish.
   void LibcameraRosDriver::publishLoop()
   {
     while (true)
     {
-      sensor_msgs::msg::Image::UniquePtr img;
-      sensor_msgs::msg::CameraInfo::UniquePtr info;
-
+      PendingFrame f;
       {
         std::unique_lock<std::mutex> lock(publish_mutex_);
-        publish_cv_.wait(lock, [this] { return pending_image_ || publish_stop_; });
+        publish_cv_.wait(lock, [this] { return pending_.request || publish_stop_; });
 
-        if (publish_stop_ && !pending_image_)
-          return;
+        if (publish_stop_)
+          return;  // shutting down: any pending frame is dropped; camera stop reclaims its buffer
 
-        img = std::move(pending_image_);
-        info = std::move(pending_info_);
+        f = pending_;
+        pending_ = PendingFrame();  // reset slot (parens: Header's default ctor is explicit)
       }
+
+      // the expensive copy + narrow, now off the camera thread
+      std::unique_ptr<sensor_msgs::msg::Image> img;
+      try
+      {
+        img = mono8_ ? detail::fillImageMsgMono8(f.hdr, img_width_, img_height_, src_stride_, f.data, f.fd, mono8_shift_)
+                     : detail::fillImageMsg(f.hdr, img_width_, img_height_, img_step_, encoding_, f.data, f.size, f.fd);
+      }
+      catch (const std::exception& e)
+      {
+        RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "frame build failed: " << e.what());
+      }
+
+      // we are done reading the buffer -> re-queue the request so the camera keeps capturing
+      {
+        std::scoped_lock lock(request_lock_);
+        f.request->reuse(libcamera::Request::ReuseBuffers);
+        if (camera_->queueRequest(f.request) < 0)
+          RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "queueRequest (worker) failed");
+      }
+
+      if (!img)
+        continue;  // build failed; request already re-queued above
+
+      auto info = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
+      info->header = f.hdr;
 
       // guard the publish: a throw here would otherwise terminate the whole process
       try
