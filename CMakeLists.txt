@@ -5,6 +5,11 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to an optimized build: at -O0 the per-frame copy is several times slower.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(USE_ROS_TIMER 0)
 
 if(${USE_ROS_TIMER})
@@ -115,5 +120,21 @@ ament_export_targets(
 ament_export_dependencies(
   ${DEPENDENCIES}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  # pure microbenchmark of the copy strategy (no ROS)
+  ament_add_gtest(test_performance test/test_performance.cpp)
+
+  # real image_transport round-trip of the driver's frame-build code with a faked frame
+  ament_add_gtest(test_integration test/test_integration.cpp)
+  target_include_directories(test_integration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  ament_target_dependencies(test_integration rclcpp image_transport sensor_msgs std_msgs)
+
+  # opt-in hardware smoke test (skips unless LIBCAMERA_ROS_HW_TEST is set)
+  ament_add_gtest(test_hw_smoke test/test_hw_smoke.cpp)
+  ament_target_dependencies(test_hw_smoke rclcpp image_transport sensor_msgs)
+endif()
 
 ament_package()

@@ -30,6 +30,7 @@
 #include <libcamera_ros_driver/utils/types.h>
 #include <libcamera_ros_driver/utils/pv_to_cv.h>
 #include <libcamera_ros_driver/utils/is_vector.h>
+#include <libcamera_ros_driver/detail/frame_msg.h>
 
 #include <rclcpp/rclcpp.hpp>
 #include <camera_info_manager/camera_info_manager.hpp>
@@ -96,6 +97,14 @@ namespace libcamera_ros_driver
     std::mutex request_lock_;
 
     std::string frame_id_;
+
+    // per-frame-constant image properties, cached at init to keep the 60 Hz callback
+    // free of map lookups and a per-frame std::string heap allocation
+    bool is_raw_ = false;
+    std::string encoding_;
+    uint32_t img_width_ = 0;
+    uint32_t img_height_ = 0;
+    uint32_t img_step_ = 0;
 
     bool _use_ros_time_ = false;
 
@@ -446,6 +455,13 @@ namespace libcamera_ros_driver
     if (parameter_ids_.count("AeExposureMode"))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
+    // cache per-frame-constant image properties (format/size are fixed after configure)
+    is_raw_ = (format_type(scfg.pixelFormat) == FormatType::RAW);
+    encoding_ = get_ros_encoding(scfg.pixelFormat);
+    img_width_ = scfg.size.width;
+    img_height_ = scfg.size.height;
+    img_step_ = scfg.stride;
+
     // allocate stream buffers and create one request per buffer
     stream_ = scfg.stream();
 
@@ -703,31 +719,27 @@ namespace libcamera_ros_driver
       }
 
       hdr.frame_id = frame_id_;
-      const libcamera::StreamConfiguration& cfg = stream_->configuration();
 
-      if (format_type(cfg.pixelFormat) == FormatType::RAW)
+      // No subscribers -> skip the full-frame copy + publish entirely. image_transport
+      // would drop the message anyway, but only after we paid for the copy.
+      if (image_pub_.getNumSubscribers() == 0)
+      {
+        request->reuse(libcamera::Request::ReuseBuffers);
+        camera_->queueRequest(request);
+        return;
+      }
+
+      if (is_raw_)
       {
         const buffer_info_t& binfo = buffer_info_.at(buffer);
 
         // raw uncompressed image
         assert(binfo.size == bytesused);
 
-        auto image_msg = std::make_unique<sensor_msgs::msg::Image>();
-        image_msg->header = hdr;
-        image_msg->width = cfg.size.width;
-        image_msg->height = cfg.size.height;
-        image_msg->step = cfg.stride;
-        image_msg->encoding = get_ros_encoding(cfg.pixelFormat);
-        image_msg->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-        image_msg->data.resize(binfo.size);
-
-        // Invalidate CPU cache for this dmabuf before reading. No-op on coherent buffers;
-        // on cached buffers it makes the read both correct and full-speed. ponytail: ignore ioctl errors, copy still works.
-        dma_buf_sync sync_start = {DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ};
-        ioctl(binfo.fd, DMA_BUF_IOCTL_SYNC, &sync_start);
-        memcpy(image_msg->data.data(), binfo.data, binfo.size);
-        dma_buf_sync sync_end = {DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ};
-        ioctl(binfo.fd, DMA_BUF_IOCTL_SYNC, &sync_end);
+        // build the Image (single uninitialized copy + dmabuf cache-sync); see frame_msg.h.
+        // ponytail: ignore ioctl errors inside, the copy still works.
+        auto image_msg = detail::fillImageMsg(hdr, img_width_, img_height_, img_step_, encoding_,
+                                              static_cast<const uint8_t*>(binfo.data), binfo.size, binfo.fd);
 
         auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
         cinfo_msg->header = hdr;
