@@ -78,7 +78,7 @@ Key properties baked into this flow:
 libcamera allows **one `CameraManager` per process**. Running each camera in its **own
 process** therefore gives each one its **own** CameraManager thread, so the per-camera
 libcamera work runs **in parallel on separate cores**. On a Pi 5 this measured **best**
-(~30% per core for two full-res cameras).
+(~28% whole-machine busy for two full-res cameras at 60 Hz; see [Performance notes](#performance-notes)).
 
 ```mermaid
 flowchart TB
@@ -249,13 +249,17 @@ ros2 run libcamera_ros_driver check_stereo_sync.py \
 
 ## Performance notes
 
-For two full-resolution (1280×800) OV9281 cameras at ~52 Hz on a Pi 5, expect **~30% per
-core** in the two-process layout. The driver is tuned to that point via: enough capture
-buffers to avoid sensor stalls, the per-frame work moved onto a worker thread, MONO8
+For two full-resolution (1280×800) OV9281 cameras at the **60 Hz** target on a Pi 5, expect
+**~28% whole-machine busy** (≈0.74 core of driver CPU for both cameras) in the two-process
+layout — roughly **half** the CPU of the un-optimized driver at the same rate (measured
+113% → 74% driver CPU, 52% → 28% whole-Pi). The driver reaches that point via: enough
+capture buffers to avoid sensor stalls, the per-frame work moved onto a worker thread, MONO8
 narrowing to halve the payload, a no-subscriber gate, and init-time caching of all
-per-frame constants. If you need to go further, the remaining levers are **system-level**
-(zenoh shared-memory transport to cut the DDS copy) rather than driver code. Frame rate is
-ultimately bounded by the sensor mode / exposure, not by CPU.
+per-frame constants. Measure it yourself with [`scripts/measure_cpu.sh`](scripts/measure_cpu.sh).
+The frame rate is bounded by the sensor mode / exposure and capture-buffer count, **not** by
+CPU (the un-optimized build hits 60 Hz too, just at twice the cost). If you need to go further
+on CPU, the remaining levers are **system-level** (zenoh shared-memory transport to cut the
+DDS copy for a co-located consumer) rather than driver code.
 
 ---
 
