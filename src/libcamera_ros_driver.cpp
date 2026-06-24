@@ -6,11 +6,13 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdint>
+#include <condition_variable>
 #include <cstring>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <string>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
@@ -105,6 +107,12 @@ namespace libcamera_ros_driver
     uint32_t img_width_ = 0;
     uint32_t img_height_ = 0;
     uint32_t img_step_ = 0;
+    uint32_t src_stride_ = 0;  // input row stride in bytes (for mono16->mono8 narrowing)
+
+    // opt-in: publish MONO8 by narrowing a MONO16 frame. Halves the serialized payload for
+    // consumers (e.g. VIO) that only use 8-bit greyscale. Default off keeps the raw R16 output.
+    bool mono8_ = false;
+    int mono8_shift_ = 8;  // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
 
     bool _use_ros_time_ = false;
 
@@ -125,7 +133,20 @@ namespace libcamera_ros_driver
     sensor_msgs::msg::CameraInfo cinfo_msg_;
 
     image_transport::CameraPublisher image_pub_;
-    std::mutex image_pub_mutex_;
+
+    // Publish offload: the libcamera requestCompleted callback runs on the CameraManager's
+    // single (per-process, shared in stereo) thread. Doing publish() there serializes both
+    // cameras onto one core. We hand the finished message to a per-node worker thread so the
+    // heavy serialization runs in parallel, off the camera thread.
+    // ponytail: single-slot latest-frame-wins. A queue would only add latency for a live
+    // camera -- if the publisher falls behind, the freshest frame is the only one worth sending.
+    std::thread publish_thread_;
+    std::mutex publish_mutex_;
+    std::condition_variable publish_cv_;
+    sensor_msgs::msg::Image::UniquePtr pending_image_;
+    sensor_msgs::msg::CameraInfo::UniquePtr pending_info_;
+    bool publish_stop_ = false;
+    void publishLoop();
 
     // map parameter names to libcamera control id
     std::unordered_map<std::string, const libcamera::ControlId*> parameter_ids_;
@@ -189,6 +210,9 @@ namespace libcamera_ros_driver
     param_loader.loadParam("resolution/width", resolution_width);
     param_loader.loadParam("resolution/height", resolution_height);
     param_loader.loadParam("use_ros_time", _use_ros_time_);
+    param_loader.loadParam("publish_mono8", mono8_, false);
+    param_loader.loadParam("mono8_shift", mono8_shift_, 8);
+    mono8_shift_ = std::clamp(mono8_shift_, 0, 15);  // a uint16 shift outside [0,15] is UB
 
     if (!param_loader.loadedSuccessfully())
     {
@@ -293,6 +317,12 @@ namespace libcamera_ros_driver
       return;
     }
 
+    // Ground-truth dump: every pixel format (and its sizes) the camera offers for THIS role,
+    // intersected with what the node can encode. Tells us if e.g. R8/MONO8 exists for the role
+    // before we pay for any guess-and-flash cycle. Raw roles -> only sensor-native depth (R16
+    // for a 10-bit sensor); processed roles (viewfinder/video) -> ISP can add R8.
+    RCLCPP_INFO_STREAM(node_->get_logger(), "Supported formats for role '" << stream_role << "' (camera ∩ node):\n" << stream_formats);
+
     if (pixel_format.empty())
     {
       // auto select first common pixel format
@@ -337,6 +367,13 @@ namespace libcamera_ros_driver
     {
       scfg.size = size;
     }
+
+    // The StillCapture/Raw roles default to a very low buffer count on the RPi pipeline
+    // (often 1). With so few buffers the sensor stalls the moment our callback is still
+    // holding one, capping the rate far below the requested fps. Give the pipeline enough
+    // in-flight buffers to keep capturing while a frame is copied/published.
+    // ponytail: 4 is the RPi viewfinder/video default; raise it only if drops persist.
+    scfg.bufferCount = std::max<unsigned int>(scfg.bufferCount, 4);
 
     // store selected stream configuration
     const libcamera::StreamConfiguration selected_scfg = scfg;
@@ -460,7 +497,20 @@ namespace libcamera_ros_driver
     encoding_ = get_ros_encoding(scfg.pixelFormat);
     img_width_ = scfg.size.width;
     img_height_ = scfg.size.height;
+    src_stride_ = scfg.stride;
     img_step_ = scfg.stride;
+
+    // mono8 narrowing only applies to a 16-bit mono source; otherwise fall back to passthrough
+    if (mono8_ && encoding_ == "mono16")
+    {
+      encoding_ = "mono8";
+      img_step_ = img_width_;  // 1 byte/pixel, tightly packed
+      RCLCPP_INFO_STREAM(node_->get_logger(), "publish_mono8: narrowing MONO16 -> MONO8 (shift " << mono8_shift_ << ")");
+    } else if (mono8_)
+    {
+      mono8_ = false;
+      RCLCPP_WARN_STREAM(node_->get_logger(), "publish_mono8 requested but source encoding is '" << encoding_ << "', not mono16; publishing unchanged");
+    }
 
     // allocate stream buffers and create one request per buffer
     stream_ = scfg.stream();
@@ -558,6 +608,9 @@ namespace libcamera_ros_driver
       return;
     }
 
+    // start the publish worker before frames begin arriving
+    publish_thread_ = std::thread(&LibcameraRosDriver::publishLoop, this);
+
     for (std::unique_ptr<libcamera::Request>& request : requests_)
       camera_->queueRequest(request.get());
 
@@ -586,6 +639,15 @@ namespace libcamera_ros_driver
     camera_->release();
     // Do not stop the manager here: it is shared. Dropping our shared_ptr (member
     // destruction) stops it only once the last camera node is gone.
+
+    // camera is stopped, so no more frames will be handed off: wake and join the worker
+    {
+      std::scoped_lock lock(publish_mutex_);
+      publish_stop_ = true;
+    }
+    publish_cv_.notify_one();
+    if (publish_thread_.joinable())
+      publish_thread_.join();
 
     for (const auto& e : buffer_info_)
     {
@@ -685,84 +747,115 @@ namespace libcamera_ros_driver
   {
     std::scoped_lock lock(request_lock_);
 
-    if (request->status() == libcamera::Request::RequestComplete)
+    // Everything that could throw or early-return lives in this try; the re-queue below runs
+    // unconditionally afterwards. A request that leaves here without being re-queued leaks a
+    // buffer from the finite pool, and once the pool drains the camera silently stops forever.
+    try
     {
-      assert(request->buffers().size() == 1);
-
-      // get the stream and buffer from the request
-      const libcamera::FrameBuffer* buffer = request->findBuffer(stream_);
-      const libcamera::FrameMetadata& metadata = buffer->metadata();
-      size_t bytesused = 0;
-
-      for (const libcamera::FrameMetadata::Plane& plane : metadata.planes())
+      if (request->status() == libcamera::Request::RequestComplete)
       {
-        bytesused += plane.bytesused;
-      }
+        assert(request->buffers().size() == 1);
 
-      // send image data
-      std_msgs::msg::Header hdr;
+        const libcamera::FrameBuffer* buffer = request->findBuffer(stream_);
+        const libcamera::FrameMetadata& metadata = buffer->metadata();
 
-      hdr.stamp = rclcpp::Time(metadata.timestamp);
-      if (_use_ros_time_)
-      {
-        if (!start_time_offset_obtained_)
+        // Only pay for the build+publish when the format is raw AND someone is listening.
+        if (is_raw_ && image_pub_.getNumSubscribers() > 0)
         {
-          start_time_offset_ = node_->now() - hdr.stamp;
-          start_time_offset_obtained_ = true;
-        }
+          std_msgs::msg::Header hdr;
+          hdr.stamp = rclcpp::Time(metadata.timestamp);
+          if (_use_ros_time_)
+          {
+            if (!start_time_offset_obtained_)
+            {
+              start_time_offset_ = node_->now() - hdr.stamp;
+              start_time_offset_obtained_ = true;
+            }
+            rclcpp::Time ts(hdr.stamp);
+            ts += start_time_offset_;
+            hdr.stamp = ts;
+          }
+          hdr.frame_id = frame_id_;
 
+          const buffer_info_t& binfo = buffer_info_.at(buffer);
+
+          // build the Image (single copy + dmabuf cache-sync); see frame_msg.h.
+          // ponytail: ignore ioctl errors inside, the copy still works.
+          auto image_msg = mono8_ ? detail::fillImageMsgMono8(hdr, img_width_, img_height_, src_stride_,
+                                                              static_cast<const uint8_t*>(binfo.data), binfo.fd, mono8_shift_)
+                                  : detail::fillImageMsg(hdr, img_width_, img_height_, img_step_, encoding_,
+                                                         static_cast<const uint8_t*>(binfo.data), binfo.size, binfo.fd);
+
+          auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
+          cinfo_msg->header = hdr;
+
+          // hand off to the worker thread; latest-frame-wins (drop any frame it hasn't taken yet)
+          {
+            std::scoped_lock pub_lock(publish_mutex_);
+            pending_image_ = std::move(image_msg);
+            pending_info_ = std::move(cinfo_msg);
+          }
+          publish_cv_.notify_one();
+        } else if (!is_raw_)
         {
-          rclcpp::Time ts(hdr.stamp);
-          ts += start_time_offset_;
-          hdr.stamp = ts;
+          RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                                       "Unsupported pixel format: " << stream_->configuration().pixelFormat.toString());
         }
-      }
-
-      hdr.frame_id = frame_id_;
-
-      // No subscribers -> skip the full-frame copy + publish entirely. image_transport
-      // would drop the message anyway, but only after we paid for the copy.
-      if (image_pub_.getNumSubscribers() == 0)
+      } else if (request->status() == libcamera::Request::RequestCancelled)
       {
-        request->reuse(libcamera::Request::ReuseBuffers);
-        camera_->queueRequest(request);
-        return;
+        // Usually a PiSP frontend timeout (CSI/ISP bandwidth) or shutdown. We still re-queue
+        // below so the camera can recover if it was transient.
+        RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                                    "Request cancelled (camera may have stalled): " << request->toString());
       }
-
-      if (is_raw_)
-      {
-        const buffer_info_t& binfo = buffer_info_.at(buffer);
-
-        // raw uncompressed image
-        assert(binfo.size == bytesused);
-
-        // build the Image (single uninitialized copy + dmabuf cache-sync); see frame_msg.h.
-        // ponytail: ignore ioctl errors inside, the copy still works.
-        auto image_msg = detail::fillImageMsg(hdr, img_width_, img_height_, img_step_, encoding_,
-                                              static_cast<const uint8_t*>(binfo.data), binfo.size, binfo.fd);
-
-        auto cinfo_msg = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
-        cinfo_msg->header = hdr;
-
-        {
-          std::scoped_lock lock(image_pub_mutex_);
-          image_pub_.publish(std::move(image_msg), std::move(cinfo_msg));
-        }
-
-      } else
-      {
-        RCLCPP_ERROR_STREAM(node_->get_logger(), "Unsupported pixel format: " << stream_->configuration().pixelFormat.toString());
-        return;
-      }
-
-    } else if (request->status() == libcamera::Request::RequestCancelled)
+    }
+    catch (const std::exception& e)
     {
-      RCLCPP_ERROR_STREAM(node_->get_logger(), "Request '" << request->toString() << "' cancelled");
+      RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "requestComplete dropped a frame: " << e.what());
     }
 
-    // queue the request again for the next frame
+    // ALWAYS re-queue, on every path, so the buffer pool can never starve.
     request->reuse(libcamera::Request::ReuseBuffers);
-    camera_->queueRequest(request);
+    if (camera_->queueRequest(request) < 0)
+    {
+      RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                                   "queueRequest failed -- camera is no longer accepting buffers (stalled/stopped)");
+    }
+  }
+
+  //}
+
+  /* publishLoop() //{ */
+
+  // Drains the single-slot handoff and runs the heavy publish() off the camera thread.
+  void LibcameraRosDriver::publishLoop()
+  {
+    while (true)
+    {
+      sensor_msgs::msg::Image::UniquePtr img;
+      sensor_msgs::msg::CameraInfo::UniquePtr info;
+
+      {
+        std::unique_lock<std::mutex> lock(publish_mutex_);
+        publish_cv_.wait(lock, [this] { return pending_image_ || publish_stop_; });
+
+        if (publish_stop_ && !pending_image_)
+          return;
+
+        img = std::move(pending_image_);
+        info = std::move(pending_info_);
+      }
+
+      // guard the publish: a throw here would otherwise terminate the whole process
+      try
+      {
+        image_pub_.publish(std::move(img), std::move(info));
+      }
+      catch (const std::exception& e)
+      {
+        RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "publish failed: " << e.what());
+      }
+    }
   }
 
   //}

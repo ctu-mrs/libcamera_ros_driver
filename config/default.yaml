@@ -30,6 +30,15 @@ libcamera_ros_driver:
 
   use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
 
+  # Narrow a MONO16 source (R16) down to MONO8 in the driver, BEFORE publishing. Halves the
+  # serialized payload / wire bandwidth / subscriber copy -- the only byte reduction possible
+  # on this sensor, since mono is forced to raw R16 by the pipeline (R8 is promoted, see above).
+  # Only takes effect when the negotiated encoding is mono16 (otherwise ignored with a warning).
+  # Lossy: drops the low bits the 8-bit consumer ignores anyway (fine for VIO/feature tracking).
+  publish_mono8: true
+  mono8_shift: 8 # bits to shift right when narrowing.
+                 # Image too dark/bright? This is the knob (no rebuild needed).
+
   # frame_id and calib_url parameters are set using launch file
 
   ## --------------------------------------------------------------

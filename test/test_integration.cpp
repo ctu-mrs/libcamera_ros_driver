@@ -32,6 +32,32 @@ namespace
   const std::string kEncoding = "mono8";
 }  // namespace
 
+// Pure logic check for the MONO16 -> MONO8 narrowing (no ROS / camera needed). Verifies the
+// shift, tight output packing, and that input row stride padding is skipped correctly.
+TEST(Mono8Narrowing, ShiftsAndPacks)
+{
+  constexpr uint32_t w = 4, h = 3;
+  constexpr uint32_t stride = 16;  // bytes per input row > w*2, i.e. 8 px slots, last 4 are padding
+  constexpr int shift = 2;
+
+  std::vector<uint8_t> raw(static_cast<size_t>(stride) * h, 0xEE);  // padding poison
+  for (uint32_t y = 0; y < h; ++y)
+  {
+    uint16_t* row = reinterpret_cast<uint16_t*>(raw.data() + static_cast<size_t>(y) * stride);
+    for (uint32_t x = 0; x < w; ++x)
+      row[x] = static_cast<uint16_t>((y * w + x) << shift);  // so >>shift recovers the index
+  }
+
+  std_msgs::msg::Header hdr;
+  auto msg = libcamera_ros_driver::detail::fillImageMsgMono8(hdr, w, h, stride, raw.data(), -1, shift);
+
+  ASSERT_EQ(msg->encoding, "mono8");
+  ASSERT_EQ(msg->step, w);
+  ASSERT_EQ(msg->data.size(), static_cast<size_t>(w) * h);
+  for (uint32_t i = 0; i < w * h; ++i)
+    EXPECT_EQ(msg->data[i], static_cast<uint8_t>(i)) << "pixel " << i << " (stride padding leaked?)";
+}
+
 class FrameRoundTrip : public ::testing::Test
 {
 protected:
