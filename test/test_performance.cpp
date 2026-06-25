@@ -173,3 +173,9 @@ TEST_F(Mono8NarrowPerf, NarrowWithin60HzBudget)
       << "mono8 narrow median " << med << " ms exceeds " << kFrameBudgetMs
       << " ms budget (60 Hz = 16.67 ms/frame). Likely an unoptimized build of the shift loop.";
 }
+
+int main(int argc, char** argv)
+{
+  testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

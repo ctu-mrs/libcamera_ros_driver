@@ -1,6 +1,5 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
-<package format="3">
+<package format="2">
 
   <name>libcamera_ros_driver</name>
   <version>0.1.0</version>
@@ -12,22 +11,22 @@
 
   <license>MIT</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>ament_cmake_ros</buildtool_depend>
+  <buildtool_depend>catkin</buildtool_depend>
 
   <depend>camera_info_manager</depend>
+  <depend>cmake_modules</depend>
   <depend>image_transport</depend>
   <depend>libcamera_ros</depend>
-  <depend>rclcpp</depend>
-  <depend>rclcpp_components</depend>
+  <depend>nodelet</depend>
+  <depend>roscpp</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>mrs_lib</depend>
 
-  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>rostest</test_depend>
+  <test_depend>rospy</test_depend>
 
   <export>
-    <build_type>ament_cmake</build_type>
+    <nodelet plugin="${prefix}/nodelets.xml" />
   </export>
 
 </package>

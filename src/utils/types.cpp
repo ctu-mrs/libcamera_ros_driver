@@ -2,14 +2,14 @@
 #include <libcamera/controls.h>
 
 
-#define CASE_TYPE(T)                                                                                                                                           \
-  case libcamera::ControlType##T:                                                                                                                              \
+#define CASE_TYPE(T)                                                                               \
+  case libcamera::ControlType##T:                                                                  \
     return #T;
 
-std::string std::to_string(const libcamera::ControlType id)
+std::string
+std::to_string(const libcamera::ControlType id)
 {
-  switch (id)
-  {
+  switch (id) {
     CASE_TYPE(None)
     CASE_TYPE(Bool)
     CASE_TYPE(Byte)
@@ -19,9 +19,6 @@ std::string std::to_string(const libcamera::ControlType id)
     CASE_TYPE(String)
     CASE_TYPE(Rectangle)
     CASE_TYPE(Size)
-    CASE_TYPE(Unsigned16)
-    CASE_TYPE(Unsigned32)
-    CASE_TYPE(Point)
   }
 
   return {};

@@ -1,56 +1,50 @@
-cmake_minimum_required(VERSION 3.28.0)
+cmake_minimum_required(VERSION 3.5)
 project(libcamera_ros_driver)
 
-set(CMAKE_C_STANDARD 99)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Default to an optimized build: at -O0 the per-frame copy is several times slower.
+# Default to an optimized build: at -O0 the per-frame copy/narrow is several times slower
+# (the performance tests assume a Release-grade build).
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-set(USE_ROS_TIMER 0)
+add_compile_options(-Wall -Wextra)
 
-if(${USE_ROS_TIMER})
-  MESSAGE(WARNING "[libcamera_ros_driver]: Compiling with ROS Timers. This can cause high CPU load in runtime.")
-endif()
-
-# set the compile options to show code warnings
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra)
-endif()
-
-if(ENABLE_COVERAGE)
-  message(WARNING "building for coverage, the performance might be limited")
-
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs")
-
-  add_definitions("-O1")
-  add_definitions("-g")
-endif()
-
-set(DEPENDENCIES
+set(CATKIN_DEPENDENCIES
   camera_info_manager
+  cmake_modules
   image_transport
   libcamera_ros
-  rclcpp
-  rclcpp_components
+  nodelet
+  roscpp
   sensor_msgs
   std_msgs
-  mrs_lib
-)
+  )
 
 set(LIBRARIES
   LibcameraRosDriver_Driver
-)
+  )
 
-foreach(DEP IN LISTS DEPENDENCIES)
-  find_package(${DEP} REQUIRED)
-endforeach()
+find_package(catkin REQUIRED COMPONENTS
+  ${CATKIN_DEPENDENCIES}
+  )
 
-add_library(LibcameraRosDriver_Driver SHARED
+find_package(Threads REQUIRED)
+
+catkin_package(
+  INCLUDE_DIRS include
+  LIBRARIES ${LIBRARIES}
+  CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
+  )
+
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+  )
+
+add_library(LibcameraRosDriver_Driver
   src/libcamera_ros_driver.cpp
   src/utils/clamp.cpp
   src/utils/format_mapping.cpp
@@ -62,79 +56,57 @@ add_library(LibcameraRosDriver_Driver SHARED
   src/utils/pv_to_cv.cpp
 )
 
-target_include_directories(LibcameraRosDriver_Driver
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-
-target_compile_definitions(LibcameraRosDriver_Driver
-  PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER}
-)
+add_dependencies(LibcameraRosDriver_Driver
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+  )
 
 target_link_libraries(LibcameraRosDriver_Driver
-  PUBLIC
-    camera_info_manager::camera_info_manager
-    image_transport::image_transport
-    libcamera_ros::libcamera_ros
-    rclcpp::rclcpp
-    mrs_lib::mrs_lib
-    rclcpp_components::component
-    ${sensor_msgs_TARGETS}
-    ${std_msgs_TARGETS}
-)
-
-rclcpp_components_register_node(LibcameraRosDriver_Driver
-  PLUGIN "libcamera_ros_driver::LibcameraRosDriver"
-  EXECUTABLE LibcameraRosDriver_Driver_node
-)
+  ${catkin_LIBRARIES}
+  Threads::Threads
+  )
 
 ## --------------------------------------------------------------
 ## |                           Install                          |
 ## --------------------------------------------------------------
 
-install(TARGETS ${LIBRARIES} EXPORT export_${PROJECT_NAME}
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
+install(TARGETS ${LIBRARIES}
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+  )
 
 install(DIRECTORY launch config
-  DESTINATION share/${PROJECT_NAME}
-)
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  )
 
-# python helper scripts, runnable via `ros2 run libcamera_ros_driver <script>.py`
+install(FILES nodelets.xml
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  )
+
 install(PROGRAMS
   scripts/check_stereo_sync.py
-  DESTINATION lib/${PROJECT_NAME}
-)
+  scripts/measure_cpu.sh
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  )
 
-ament_export_libraries(
-  ${LIBRARIES}
-)
+## --------------------------------------------------------------
+## |                            Tests                           |
+## --------------------------------------------------------------
 
-ament_export_targets(
-  export_${PROJECT_NAME} HAS_LIBRARY_TARGET
-)
+if(CATKIN_ENABLE_TESTING)
 
-ament_export_dependencies(
-  ${DEPENDENCIES}
-)
+  # pure microbenchmark of the copy/narrow strategy (no ROS master needed)
+  catkin_add_gtest(test_performance test/test_performance.cpp)
 
-if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
+  # frame-build unit tests + a real image_transport round-trip with a faked frame.
+  # The round-trip needs a ROS master, so it runs under rostest.
+  find_package(rostest REQUIRED)
+  add_rostest_gtest(test_integration test/integration.test test/test_integration.cpp)
+  target_link_libraries(test_integration ${catkin_LIBRARIES})
 
-  # pure microbenchmark of the copy strategy (no ROS)
-  ament_add_gtest(test_performance test/test_performance.cpp)
+  # opt-in hardware smoke test (GTEST_SKIPs unless LIBCAMERA_ROS_HW_TEST is set, before touching ROS)
+  catkin_add_gtest(test_hw_smoke test/test_hw_smoke.cpp)
+  target_link_libraries(test_hw_smoke ${catkin_LIBRARIES})
 
-  # real image_transport round-trip of the driver's frame-build code with a faked frame
-  ament_add_gtest(test_integration test/test_integration.cpp)
-  target_include_directories(test_integration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  ament_target_dependencies(test_integration rclcpp image_transport sensor_msgs std_msgs)
-
-  # opt-in hardware smoke test (skips unless LIBCAMERA_ROS_HW_TEST is set)
-  ament_add_gtest(test_hw_smoke test/test_hw_smoke.cpp)
-  ament_target_dependencies(test_hw_smoke rclcpp image_transport sensor_msgs)
 endif()
-
-ament_package()

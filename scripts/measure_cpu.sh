@@ -4,19 +4,19 @@
 # Reports three layers per sample (all true *interval* rates, read from /proc --
 # NOT ps's misleading lifetime average):
 #   1. driver  : summed %CPU of the driver process(es)   (can exceed 100% = multi-core)
-#   2. system  : whole-Pi busy %  (0..100, idle-subtracted -> folds in DDS/zenoh/IRQ)
+#   2. system  : whole-Pi busy %  (0..100, idle-subtracted -> folds in transport/IRQ)
 #   3. net      : eth0 TX MB/s     (catches a gigabit-bandwidth ceiling)
 #
-# Layout-aware PID selection:
-#   stereo : one shared container  -> exactly 1 driver PID expected
-#   mono    : two separate launches -> 2 driver PIDs, summed
+# Layout-aware PID selection (ROS1 nodelet managers):
+#   stereo : one shared nodelet manager -> exactly 1 driver PID expected
+#   mono    : two separate launches      -> 2 driver PIDs, summed
 #
 # Usage:
 #   ./measure_cpu.sh stereo [duration_s] [iface] [match]
 #   ./measure_cpu.sh mono   [duration_s] [iface] [match]
-# Defaults: duration=60  iface=eth0  match=<mode-specific container name(s)>
-#   mono   -> rpi_camera_(front|back)_container   (two processes, summed)
-#   stereo -> rpi_camera_stereo_container          (one shared container)
+# Defaults: duration=60  iface=eth0  match=<mode-specific manager name(s)>
+#   mono   -> camera_(front|back)_manager   (two nodelet managers, summed)
+#   stereo -> stereo_manager                 (one shared nodelet manager)
 # Pass a 4th arg to override the match (an extended regex, matched against cmdline).
 
 set -u
@@ -26,8 +26,8 @@ DURATION=${2:-60}
 IFACE=${3:-eth0}
 
 case "$MODE" in
-  stereo) WANT=1; DEFAULT_MATCH='rpi_camera_stereo_container' ;;
-  mono)   WANT=2; DEFAULT_MATCH='rpi_camera_(front|back)_container' ;;
+  stereo) WANT=1; DEFAULT_MATCH='stereo_manager' ;;
+  mono)   WANT=2; DEFAULT_MATCH='camera_(front|back)_manager' ;;
   *) echo "MODE must be 'stereo' (1 process) or 'mono' (2 processes)"; exit 1 ;;
 esac
 MATCH=${4:-$DEFAULT_MATCH}
@@ -38,8 +38,8 @@ NCPU=$(nproc)
 mapfile -t PIDS < <(pgrep -f "$MATCH" | while read -r p; do
   cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)
   case "$cmd" in
-    *measure_cpu*|*pgrep*|*ros2\ launch*) continue ;;   # skip self + launcher
-    *) echo "$p" ;;                                       # pgrep -f already applied the regex
+    *measure_cpu*|*pgrep*|*roslaunch*) continue ;;   # skip self + launcher
+    *) echo "$p" ;;                                    # pgrep -f already applied the regex
   esac
 done)
 
@@ -119,6 +119,6 @@ awk -F',' 'NR>1{
 }}' "$OUT"
 echo "thread count: $(for p in "${PIDS[@]}"; do ls "/proc/$p/task" 2>/dev/null | wc -l; done | paste -sd+ | bc 2>/dev/null)"
 # ponytail: pure /proc, no sysstat dep; O(#pids) parse per second is plenty for 2 procs.
-#           Run with rviz subscribed AND closed -- the system_busy delta = the DDS/zenoh
-#           transport cost (the no-subscriber gate avoids it). SHM helps only a co-located
-#           consumer, not rviz-over-Ethernet, which is gigabit-bandwidth bound.
+#           Run with rviz subscribed AND closed -- the system_busy delta = the transport
+#           cost (the no-subscriber gate avoids it). Nodelet shared-memory helps only a
+#           co-located consumer, not rviz-over-Ethernet, which is gigabit-bandwidth bound.

@@ -1,76 +1,52 @@
-libcamera_ros_driver:
+## --------------------------------------------------------------
+## |                    compulsory parameters                   #
+## --------------------------------------------------------------
 
-  ## --------------------------------------------------------------
-  ## |                    compulsory parameters                   #
-  ## --------------------------------------------------------------
+camera_name: "ov9281" # if the camera_name is not defined, the id is used
+camera_id: 0
+stream_role: "still" # [raw, still, video, viewfinder]
 
-  camera_name: "ov9281" # if the camera_name is not defined, the id is used
-  camera_id: 0
+pixel_format: "RGB888" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
+# pixel_format: "XRGB8888" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
+# pixel_format: "SRGGB8" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
+# pixel_format: "SRGGB16" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
 
-  stream_role: "still" # [raw, still, video, viewfinder]
+resolution:
+  width: 1280
+  height: 800
 
-  # Available output formats (camera-offered AND driver-supported) with per-pixel cost.
-  # Fewer bytes/pixel => less CPU on the per-frame copy and less bandwidth on the wire.
-  # NOTE: ov9281 is a 10-bit MONO sensor. On the Pi5/PiSP pipeline, R8 is silently
-  #       promoted to R16 (10-bit sensor data unpacked into 16-bit). See "Stream
-  #       configuration adjusted" in the startup log to confirm what was negotiated.
-  # docs: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
-  pixel_format: "RGB888"    # 3 B/px -> BGR8 ; ISP gamma-corrected, display-ready, highest CPU
-  # pixel_format: "BGR888"    # 3 B/px -> RGB8 ; ISP gamma-corrected, display-ready
-  # pixel_format: "YUYV"      # 2 B/px -> YUV422 ; Y plane is gamma-corrected 8-bit gray (display-ready, low CPU)
-  # pixel_format: "R16"       # 2 B/px -> MONO16 ; LINEAR 10-bit data (looks dark in MONO16 viewers; ideal for algorithms)
-  # pixel_format: "R8"        # 1 B/px -> MONO8 ; lowest CPU, but PiSP promotes it to R16 on this sensor
-  # pixel_format: "XRGB8888"  # 4 B/px -> BGRA8 ; highest CPU
-  # pixel_format: "SRGGB8"    # 1 B/px -> raw Bayer8  (not meaningful on a mono sensor)
-  # pixel_format: "SRGGB16"   # 2 B/px -> raw Bayer16 (not meaningful on a mono sensor)
+use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
 
-  resolution:
-    width: 1280
-    height: 800
+# --- performance / format options (optional) ---
+publish_mono8: false # if true and the source is MONO16, narrow it to MONO8 (halves the published payload; for 8-bit greyscale consumers like VIO)
+mono8_shift: 8       # right-shift applied during MONO16->MONO8 narrowing. PiSP delivers MSB-aligned samples, so 8 takes the top byte. 10-bit right-justified -> 2, 12-bit -> 4
+dmabuf_sync: true    # invalidate/flush the dmabuf cache around each CPU frame read. Keep ON for correctness on non-coherent buffers; disable only after verifying images stay intact
 
-  use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
+# frame_id and calib_url parameters are set using launch file
 
-  # Narrow a MONO16 source (R16) down to MONO8 in the driver, BEFORE publishing. Halves the
-  # serialized payload / wire bandwidth / subscriber copy -- the only byte reduction possible
-  # on this sensor, since mono is forced to raw R16 by the pipeline (R8 is promoted, see above).
-  # Only takes effect when the negotiated encoding is mono16 (otherwise ignored with a warning).
-  # Lossy: drops the low bits the 8-bit consumer ignores anyway (fine for VIO/feature tracking).
-  publish_mono8: true
-  mono8_shift: 8 # bits to shift right when narrowing.
-                 # Image too dark/bright? This is the knob (no rebuild needed).
-
-  # dmabuf cache invalidate/flush around each frame's CPU read. Required for correct reads of
-  # NON-coherent capture buffers. If the Pi's buffers are coherent, this is pure CPU overhead
-  # (cache ops over the whole frame, every frame). Set false to measure the saving on-device --
-  # but ONLY keep it false if the images stay intact (no torn/stale frames, no artifacts).
-  dmabuf_sync: true
-
-  # frame_id and calib_url parameters are set using launch file
-
-  ## --------------------------------------------------------------
-  ## |                     optional parameters                    #
-  ## --------------------------------------------------------------
-
-  # documentation: https://libcamera.org/api-html/namespacelibcamera_1_1controls.html
-  control:
-    fps: 20 # [Hz] Note: fps is set as 1000000/frame_duration_limits
-    # exposure_time: 20 # Exposure time (shutter speed) for the frame applied in the sensor device. This value is specified in micro-seconds.
-    # stats_output_enable - not supported by the current version of the libcamera SDK
-    # noise_reduction_mode - not supported by the current version of the libcamera SDK
-    # ae_constraint_mode: "normal" # [normal, highlight, shadows, custom]
-    # brightness: 0.0 # Positive values (up to 1.0) produce brighter images; negative values (up to -1.0) produce darker images and 0.0 leaves pixels unchanged.
-    # sharpness: 1.0 # A value of 0.0 means no sharpening. The minimum value means minimal sharpening, and shall be 0.0 unless the camera can't disable sharpening completely. The default value shall give a "reasonable" level of sharpening, suitable for most use cases. The maximum value may apply extremely high levels of sharpening, higher than anyone could reasonably want. Negative values are not allowed. Note also that sharpening is not applied to raw streams.
-    # colour_gain: 0.0 # Pair of gain values for the Red and Blue colour channels, in that order. ColourGains can only be applied in a Request when the AWB is disabled.
-    # ae_enabled: true
-    # ae_flicker_mode - not supported by the current version of the libcamera SDK
-    # saturation: 1.0 # Specify a fixed saturation parameter. Normal saturation is given by the value 1.0; larger values produce more saturated colours; 0.0 produces a greyscale image.
-    # contrast: 1.0 # Specify a fixed contrast parameter. Normal contrast is given by the value 1.0; larger values produce images with more contrast.
-    # hdr_mode - not supported by the current version of the libcamera SDK
-    # exposure_value: 0.0 # Specify an Exposure Value (EV) parameter. The EV parameter will only be applied if the AE algorithm is currently enabled.
-    # analogue_gain: 1.0 # Analogue gain value applied in the sensor device. The value of the control specifies the gain multiplier applied to all colour channels. This value cannot be lower than 1.0.
-    # awb_enable: true
-    # awb_mode: "auto" # [auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom]
-    # ae_flicker_period - not supported by the current version of the libcamera SDK
-    # ae_metering_mode: "centre-weighted" # [centre-weighted, spot, matrix, custom]
-    # scaler_crop: [0, 0, 1456, 1088] # Sets the image portion that will be scaled to form the whole of the final output image. (example of usage: [0, 0, 1456, 1088] is [(0, 0)/1456x1088])
-    # ae_exposure_mode: "normal" # [normal, short, long, custom]
+## --------------------------------------------------------------
+## |                     optional parameters                    #
+## --------------------------------------------------------------
+# documentation: https://libcamera.org/api-html/namespacelibcamera_1_1controls.html
+control:
+  fps: 30 # [Hz] Note: fps is set as 1000000/frame_duration_limits
+  # exposure_time: 20 # Exposure time (shutter speed) for the frame applied in the sensor device. This value is specified in micro-seconds.
+  # stats_output_enable - not supported by the current version of the libcamera SDK
+  # noise_reduction_mode - not supported by the current version of the libcamera SDK
+  # ae_constraint_mode: "normal" # [normal, highlight, shadows, custom]
+  # brightness: 0.0 # Positive values (up to 1.0) produce brighter images; negative values (up to -1.0) produce darker images and 0.0 leaves pixels unchanged.
+  # sharpness: 1.0 # A value of 0.0 means no sharpening. The minimum value means minimal sharpening, and shall be 0.0 unless the camera can't disable sharpening completely. The default value shall give a "reasonable" level of sharpening, suitable for most use cases. The maximum value may apply extremely high levels of sharpening, higher than anyone could reasonably want. Negative values are not allowed. Note also that sharpening is not applied to raw streams.
+  # colour_gain: 0.0 # Pair of gain values for the Red and Blue colour channels, in that order. ColourGains can only be applied in a Request when the AWB is disabled.
+  # ae_enabled: true
+  # ae_flicker_mode - not supported by the current version of the libcamera SDK
+  # saturation: 1.0 # Specify a fixed saturation parameter. Normal saturation is given by the value 1.0; larger values produce more saturated colours; 0.0 produces a greyscale image.
+  # contrast: 1.0 # Specify a fixed contrast parameter. Normal contrast is given by the value 1.0; larger values produce images with more contrast.
+  # hdr_mode - not supported by the current version of the libcamera SDK
+  # exposure_value: 0.0 # Specify an Exposure Value (EV) parameter. The EV parameter will only be applied if the AE algorithm is currently enabled.
+  # analogue_gain: 1.0 # Analogue gain value applied in the sensor device. The value of the control specifies the gain multiplier applied to all colour channels. This value cannot be lower than 1.0.
+  # awb_enable: true
+  # awb_mode: "auto" # [auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom]
+  # ae_flicker_period - not supported by the current version of the libcamera SDK
+  # ae_metering_mode: "centre-weighted" # [centre-weighted, spot, matrix, custom]
+  # scaler_crop: [0, 0, 1456, 1088] # Sets the image portion that will be scaled to form the whole of the final output image. (example of usage: [0, 0, 1456, 1088] is [(0, 0)/1456x1088])
+  # ae_exposure_mode: "normal" # [normal, short, long, custom]

@@ -1,0 +1,64 @@
+<launch>
+
+  <!-- Stereo pair: two LibcameraRosDriver nodelets loaded into ONE nodelet manager, so they
+       share a single process. The driver's process-wide libcamera CameraManager singleton
+       (getCameraManager) is then shared by both cameras: the ROS1 analogue of the ROS2
+       component container, and required because libcamera aborts on a second CameraManager
+       in the same process. -->
+
+  <!-- defines name of the namespace -->
+  <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)" />
+
+  <!-- config files -->
+  <arg name="config"       default="$(find libcamera_ros_driver)/config/default.yaml" />
+  <arg name="config_left"  default="$(find libcamera_ros_driver)/config/camera_left.yaml" />
+  <arg name="config_right" default="$(find libcamera_ros_driver)/config/camera_right.yaml" />
+  <arg name="custom_config" default="$(optenv CUSTOM_CONFIG)" />
+
+  <arg name="frame_id_left"  default="camera_left" />
+  <arg name="frame_id_right" default="camera_right" />
+  <arg name="calib_url_left"  default="file://$(find libcamera_ros_driver)/config/calib/camera_left.yaml" />
+  <arg name="calib_url_right" default="file://$(find libcamera_ros_driver)/config/calib/camera_right.yaml" />
+
+  <arg name="manager" default="stereo_manager" />
+
+  <env name="LIBPISP_BE_CONFIG_FILE"     value="$(optenv LIBPISP_BE_CONFIG_FILE /opt/ros/noetic/share/libpisp/backend_default_config.json)" />
+  <env name="LIBCAMERA_IPA_MODULE_PATH"  value="$(optenv LIBCAMERA_IPA_MODULE_PATH /opt/ros/noetic/lib/libcamera/)" />
+  <env name="LIBCAMERA_IPA_CONFIG_PATH"  value="$(optenv LIBCAMERA_IPA_CONFIG_PATH /opt/ros/noetic/share/libcamera/ipa)" />
+
+  <group ns="$(arg UAV_NAME)">
+
+    <!-- the shared nodelet manager (one process for both cameras) -->
+    <node pkg="nodelet" type="nodelet" name="$(arg manager)" args="manager" output="screen">
+      <param name="num_worker_threads" value="8" />
+    </node>
+
+    <!-- LEFT camera -->
+    <node pkg="nodelet" type="nodelet" name="camera_left" args="load libcamera_ros_driver/LibcameraRosDriver $(arg manager)" output="screen">
+      <rosparam command="load" file="$(arg config)" />
+      <rosparam command="load" file="$(arg config_left)" />
+      <rosparam unless="$(eval arg('custom_config') == '')" command="load" file="$(arg custom_config)" />
+
+      <param name="frame_id"  type="string" value="$(arg frame_id_left)"/>
+      <param name="calib_url" type="string" value="$(arg calib_url_left)"/>
+
+      <remap from="~image_raw"   to="~image_raw" />
+      <remap from="~camera_info" to="~camera_info" />
+    </node>
+
+    <!-- RIGHT camera -->
+    <node pkg="nodelet" type="nodelet" name="camera_right" args="load libcamera_ros_driver/LibcameraRosDriver $(arg manager)" output="screen">
+      <rosparam command="load" file="$(arg config)" />
+      <rosparam command="load" file="$(arg config_right)" />
+      <rosparam unless="$(eval arg('custom_config') == '')" command="load" file="$(arg custom_config)" />
+
+      <param name="frame_id"  type="string" value="$(arg frame_id_right)"/>
+      <param name="calib_url" type="string" value="$(arg calib_url_right)"/>
+
+      <remap from="~image_raw"   to="~image_raw" />
+      <remap from="~camera_info" to="~camera_info" />
+    </node>
+
+  </group>
+
+</launch>
