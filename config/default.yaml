@@ -9,16 +9,41 @@ libcamera_ros_driver:
 
   stream_role: "still" # [raw, still, video, viewfinder]
 
-  pixel_format: "RGB888" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
-  # pixel_format: "XRGB8888" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
-  # pixel_format: "SRGGB8" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
-  # pixel_format: "SRGGB16" #pixel format documentation: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
+  # Available output formats (camera-offered AND driver-supported) with per-pixel cost.
+  # Fewer bytes/pixel => less CPU on the per-frame copy and less bandwidth on the wire.
+  # NOTE: ov9281 is a 10-bit MONO sensor. On the Pi5/PiSP pipeline, R8 is silently
+  #       promoted to R16 (10-bit sensor data unpacked into 16-bit). See "Stream
+  #       configuration adjusted" in the startup log to confirm what was negotiated.
+  # docs: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
+  pixel_format: "RGB888"    # 3 B/px -> BGR8 ; ISP gamma-corrected, display-ready, highest CPU
+  # pixel_format: "BGR888"    # 3 B/px -> RGB8 ; ISP gamma-corrected, display-ready
+  # pixel_format: "YUYV"      # 2 B/px -> YUV422 ; Y plane is gamma-corrected 8-bit gray (display-ready, low CPU)
+  # pixel_format: "R16"       # 2 B/px -> MONO16 ; LINEAR 10-bit data (looks dark in MONO16 viewers; ideal for algorithms)
+  # pixel_format: "R8"        # 1 B/px -> MONO8 ; lowest CPU, but PiSP promotes it to R16 on this sensor
+  # pixel_format: "XRGB8888"  # 4 B/px -> BGRA8 ; highest CPU
+  # pixel_format: "SRGGB8"    # 1 B/px -> raw Bayer8  (not meaningful on a mono sensor)
+  # pixel_format: "SRGGB16"   # 2 B/px -> raw Bayer16 (not meaningful on a mono sensor)
 
   resolution:
     width: 1280
     height: 800
 
   use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
+
+  # Narrow a MONO16 source (R16) down to MONO8 in the driver, BEFORE publishing. Halves the
+  # serialized payload / wire bandwidth / subscriber copy -- the only byte reduction possible
+  # on this sensor, since mono is forced to raw R16 by the pipeline (R8 is promoted, see above).
+  # Only takes effect when the negotiated encoding is mono16 (otherwise ignored with a warning).
+  # Lossy: drops the low bits the 8-bit consumer ignores anyway (fine for VIO/feature tracking).
+  publish_mono8: true
+  mono8_shift: 8 # bits to shift right when narrowing.
+                 # Image too dark/bright? This is the knob (no rebuild needed).
+
+  # dmabuf cache invalidate/flush around each frame's CPU read. Required for correct reads of
+  # NON-coherent capture buffers. If the Pi's buffers are coherent, this is pure CPU overhead
+  # (cache ops over the whole frame, every frame). Set false to measure the saving on-device --
+  # but ONLY keep it false if the images stay intact (no torn/stale frames, no artifacts).
+  dmabuf_sync: true
 
   # frame_id and calib_url parameters are set using launch file
 

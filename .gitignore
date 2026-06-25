@@ -1,2 +1,6 @@
 *.swp
 *.swo
+.claude/
+.claude-flow/
+.serena/
+CLAUDE.md

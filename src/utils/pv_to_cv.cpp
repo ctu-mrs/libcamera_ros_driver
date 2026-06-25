@@ -25,7 +25,7 @@ libcamera::ControlValue pv_to_cv_int_array(const std::vector<int64_t>& values, c
   }
 }
 
-libcamera::ControlValue pv_to_cv(const bool& parameter)
+libcamera::ControlValue pv_to_cv(const bool& parameter, const libcamera::ControlType& /*type*/)
 {
   return {parameter};
 }
@@ -40,7 +40,7 @@ libcamera::ControlValue pv_to_cv(const int& parameter, const libcamera::ControlT
     return {};
 }
 
-libcamera::ControlValue pv_to_cv(const double& parameter)
+libcamera::ControlValue pv_to_cv(const double& parameter, const libcamera::ControlType& /*type*/)
 {
   return {CTFloat(parameter)};
 }
