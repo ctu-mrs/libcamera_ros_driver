@@ -73,12 +73,18 @@ Key properties baked into this flow:
 | **No silent death** | every request is *always* re-queued (worker, or the camera thread for dropped/error paths); a leaked buffer would silently stop the camera, so this is guarded with `try/catch` + throttled logs |
 | **Half the bytes (opt-in)** | `publish_mono8` narrows the 10-bit-in-16 sensor data to MONO8 in the copy, halving payload/transport |
 
-### Recommended deployment: one process per camera
+### Recommended deployment: single shared container
 
-libcamera allows **one `CameraManager` per process**. Running each camera in its **own
-process** therefore gives each one its **own** CameraManager thread, so the per-camera
-libcamera work runs **in parallel on separate cores**. On a Pi 5 this measured **best**
-(~28% whole-machine busy for two full-res cameras at 60 Hz; see [Performance notes](#performance-notes)).
+libcamera allows **one `CameraManager` per process**. The two layouts trade off against that:
+
+- **Single container** (`stereo.launch.py`) — both cameras in one process, sharing one
+  CameraManager. Measured the **better default**: same driver CPU as two processes but lower
+  RAM (~30 MB vs ~50 MB) and slightly lower whole-Pi busy, plus a shared clock domain. The
+  heavy per-frame work runs on a per-node worker thread, so the shared camera-callback thread
+  is **not** the bottleneck the older note assumed (see [Performance notes](#performance-notes)).
+- **One process per camera** (two `camera.launch.py`) — each camera gets its own
+  CameraManager thread, so the per-camera libcamera work runs **in parallel on separate
+  cores**. Pick this only if you need that core-level isolation; it costs more RAM.
 
 ```mermaid
 flowchart TB
@@ -94,12 +100,11 @@ flowchart TB
   T1 -->|DDS| V
 ```
 
-A single shared container (`stereo.launch.py`) is also supported, but the two cameras then
-**share one CameraManager thread**, which serializes their per-frame work and measures
-slightly worse. It gives a shared clock domain, but, like the two-process layout, it does
-**not** synchronize the two sensors' exposures (see [Stereo synchronization](#stereo-synchronization)).
-With `use_ros_time: true` both processes already stamp on the same ROS clock, so cross-process
-timestamps are equally comparable, making the two-process layout the better default.
+The two cameras share one CameraManager thread for the *capture callback*, but neither
+layout **synchronizes the two sensors' exposures** (see [Stereo synchronization](#stereo-synchronization)) —
+the single container only gives a shared clock domain. With `use_ros_time: true` the
+two-process layout stamps both cameras on the same ROS clock too, so cross-process timestamps
+remain comparable if you choose it for core isolation.
 
 ---
 
@@ -128,7 +133,7 @@ ros2 topic hz /uav1/rpi_camera_front/image_raw
 `standalone:=true` (default) starts its own container. To load into an existing container
 instead: `standalone:=false container_name:=/path/to/container`.
 
-### Stereo, two processes (recommended)
+### Stereo, two processes (per-core isolation)
 
 Launch `camera.launch.py` twice, once per sensor, each with a `custom_config` selecting a
 different camera:
@@ -143,7 +148,7 @@ ros2 launch libcamera_ros_driver camera.launch.py \
 > You cannot acquire the **same physical camera** from two processes, each launch must
 > select a distinct sensor (see selection below).
 
-### Stereo, single container (shared clock)
+### Stereo, single container (recommended, shared clock)
 
 ```bash
 ros2 launch libcamera_ros_driver stereo.launch.py \
@@ -250,12 +255,37 @@ ros2 run libcamera_ros_driver check_stereo_sync.py \
 ## Performance notes
 
 For two full-resolution (1280×800) OV9281 cameras at the **60 Hz** target on a Pi 5, expect
-**~28% whole-machine busy** (≈0.74 core of driver CPU for both cameras) in the two-process
-layout — roughly **half** the CPU of the un-optimized driver at the same rate (measured
-113% → 74% driver CPU, 52% → 28% whole-Pi). The driver reaches that point via: enough
+**~28% whole-machine busy** (≈0.74 core of driver CPU for both cameras) — roughly **half**
+the CPU of the un-optimized driver at the same rate. The driver reaches that point via: enough
 capture buffers to avoid sensor stalls, the per-frame work moved onto a worker thread, MONO8
 narrowing to halve the payload, a no-subscriber gate, and init-time caching of all
 per-frame constants. Measure it yourself with [`scripts/measure_cpu.sh`](scripts/measure_cpu.sh).
+
+Measured on a Pi 5, 60 s averages (driver CPU = summed `%CPU` of the driver process(es),
+one-core scale; whole-Pi = idle-subtracted busy across all 4 cores):
+
+| State | Build / layout | Driver CPU | Whole-Pi busy | eth0 TX peak | RSS |
+|---|---|---|---|---|---|
+| **Streaming** (rosbag + rviz over Ethernet) | old | 113% | 52% | 92 MB/s | 53 MB |
+| | new, 2× mono | 74% | 28% | 43 MB/s | 51 MB |
+| | new, stereo container | 74% | 27% | 37 MB/s | **30 MB** |
+| **Idle** (no subscribers) | old | **47%** | 13% | 0 | 49 MB |
+| | new, 2× mono | **3.3%** | 4% | 0 | 49 MB |
+| | new, stereo container | **2.6%** | 2.5% | 0 | **30 MB** |
+
+Two takeaways. **Under load** the new build does 60 Hz at half the CPU and half the wire
+bytes (the MONO8 narrowing shows up as the halved eth0 peak). **At idle** the no-subscriber
+gate makes the driver go nearly silent — ~3% vs the old build's **47%**, which keeps
+serializing and publishing frames into a topic nobody reads. That ~18× idle reduction is the
+cleanest proof of the gate, since with no subscriber there is no transport to confound it.
+
+**Stereo single-container vs two-process mono:** driver CPU is a wash (~74% either way), but
+the shared container wins on **RAM (~30 MB vs ~50 MB)** and a touch on whole-Pi busy, *and*
+gives coherent stereo timestamps (one `CameraManager`). The heavy per-frame work still runs
+on a per-node worker thread, so the shared camera-callback thread is not a bottleneck here.
+The single-container layout is the better default unless you specifically need each camera's
+libcamera work pinned to its own core.
+
 The frame rate is bounded by the sensor mode / exposure and capture-buffer count, **not** by
 CPU (the un-optimized build hits 60 Hz too, just at twice the cost). If you need to go further
 on CPU, the remaining levers are **system-level** (zenoh shared-memory transport to cut the
