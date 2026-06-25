@@ -455,57 +455,67 @@ void LibcameraRosDriver::onInit() {
   bool             param_bool;
   std::vector<int> param_vector_int;
 
+  // Apply a control only if the camera actually exposes it. A mono/grayscale sensor (e.g.
+  // ov9281) lacks colour controls like Saturation/Contrast/AwbMode, so parameter_ids_[name]
+  // is null for them; dereferencing ->type() on that null is what segfaulted onInit. Guard
+  // every control uniformly here (previously only AwbEnable was guarded).
+  // ponytail: generic lambda over the existing pv_to_cv(value, type) shape -> one guard, no
+  // per-control duplication; the next mono-only control can't reintroduce the crash.
+  auto set_control = [&](const std::string &ctl_name, auto &&raw_value) {
+    const libcamera::ControlId *id = parameter_ids_[ctl_name];
+    if (!id) {
+      ROS_WARN_STREAM("[LibcameraRosDriver]: control '" << ctl_name << "' not available on this camera (e.g. grayscale sensor); skipping");
+      return;
+    }
+    updateControlParameter(pv_to_cv(std::forward<decltype(raw_value)>(raw_value), id->type()), id);
+  };
+
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/exposure_time", param_int)) {
-    updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
+    set_control("ExposureTime", param_int);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/fps", param_float)) {
     int64_t frame_time = 1000000 / param_float;
-    updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
-                           parameter_ids_["FrameDurationLimits"]);
+    set_control("FrameDurationLimits", std::vector<int64_t>{frame_time, frame_time});
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/ae_constraint_mode", param_string)) {
-    updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
+    set_control("AeConstraintMode", get_ae_constraint_mode(param_string));
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/brightness", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
+    set_control("Brightness", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/sharpness", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
+    set_control("Sharpness", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/awb_enable", param_bool)) {
-    if (parameter_ids_["AwbEnable"])  // if the parameter is set when not available, we would get a segmentation fault upon extracting its ->type()
-      updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
-    else
-      ROS_ERROR_STREAM("[LibcameraRosDriver]: Parameter AwbEnable is not available! Maybe the selected camera is grayscale");
+    set_control("AwbEnable", param_bool);
   }
-  /* updateControlParameter<std::vector<float>>(std::string("control/colour_gains"), parameter_ids_["ColourGains"]); */
+  /* set_control("ColourGains", colour_gains_vector); */
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/ae_enable", param_bool)) {
-    updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
+    set_control("AeEnable", param_bool);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/saturation", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
+    set_control("Saturation", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/contrast", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
+    set_control("Contrast", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/exposure_value", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
+    set_control("ExposureValue", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/analogue_gain", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
+    set_control("AnalogueGain", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/awb_mode", param_string)) {
-    updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
+    set_control("AwbMode", get_awb_mode(param_string));
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/ae_metering_mode", param_string)) {
-    updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
+    set_control("AeMeteringMode", get_ae_metering_mode(param_string));
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/scaler_crop", param_vector_int)) {
-    updateControlParameter(pv_to_cv(std::vector<int64_t>{param_vector_int.begin(), param_vector_int.end()}, parameter_ids_["ScalerCrop"]->type()),
-                           parameter_ids_["ScalerCrop"]);
+    set_control("ScalerCrop", std::vector<int64_t>{param_vector_int.begin(), param_vector_int.end()});
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/control", param_string)) {
-    updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
+    set_control("AeExposureMode", get_ae_exposure_mode(param_string));
   }
 
   // allocate stream buffers and create one request per buffer

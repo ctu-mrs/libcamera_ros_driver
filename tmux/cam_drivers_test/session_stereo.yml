@@ -1,0 +1,42 @@
+# do not modify these
+root: ./
+name: cam_test
+socket_name: mrs
+attach: false
+tmux_options: -f /etc/ctu-mrs/tmux.conf
+# you can modify these
+pre_window:
+  - source /opt/ros/noetic/setup.bash
+  - source ./../../../../devel/setup.bash 2>/dev/null || source ./../../../../install/setup.bash 2>/dev/null
+  - export UAV_NAME=uav80
+
+startup_window: sensors
+windows:
+  - roscore:
+      layout: tiled
+      panes:
+        - roscore
+  - sensors:
+      layout: tiled
+      panes:
+        # Both cameras as nodelets in ONE manager (stereo_manager): they share the
+        # process and the getCameraManager() libcamera singleton (ROS1 analogue of the
+        # ROS2 component container).
+        - sleep 3; roslaunch libcamera_ros_driver stereo.launch
+          frame_id_left:=front  config_left:="$PWD/config/front/camera_front.yaml"  calib_url_left:="file://$PWD/config/front/roscalib.yaml"
+          frame_id_right:=back   config_right:="$PWD/config/back/camera_back.yaml"   calib_url_right:="file://$PWD/config/back/roscalib.yaml"
+  - test:
+      layout: tiled
+      panes:
+        - sleep 5; rostopic list
+#        - sleep 5; rosbag record -O /tmp/stress /$UAV_NAME/camera_left/image_raw /$UAV_NAME/camera_right/image_raw
+#  - cam_hz:
+#      layout: tiled
+#      panes:
+#        - sleep 5; rostopic hz /$UAV_NAME/camera_left/image_raw
+#        - sleep 5; rostopic hz /$UAV_NAME/camera_right/image_raw
+  - monitor:
+      layout: tiled
+      panes:
+        - sleep 5; bash monitor.sh stereo_manager 120 no
+#        - sleep 5; rosrun libcamera_ros_driver check_stereo_sync.py --left /$UAV_NAME/camera_left/image_raw --right /$UAV_NAME/camera_right/image_raw --slop 0.008

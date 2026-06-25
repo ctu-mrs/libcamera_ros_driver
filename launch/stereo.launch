@@ -21,6 +21,8 @@
   <arg name="calib_url_right" default="file://$(find libcamera_ros_driver)/config/calib/camera_right.yaml" />
 
   <arg name="manager" default="stereo_manager" />
+  <!-- e.g. manager_launch_prefix:="gdb -batch -ex run -ex bt -ex quit :args" to backtrace a crash -->
+  <arg name="manager_launch_prefix" default="" />
 
   <env name="LIBPISP_BE_CONFIG_FILE"     value="$(optenv LIBPISP_BE_CONFIG_FILE /opt/ros/noetic/share/libpisp/backend_default_config.json)" />
   <env name="LIBCAMERA_IPA_MODULE_PATH"  value="$(optenv LIBCAMERA_IPA_MODULE_PATH /opt/ros/noetic/lib/libcamera/)" />
@@ -29,7 +31,7 @@
   <group ns="$(arg UAV_NAME)">
 
     <!-- the shared nodelet manager (one process for both cameras) -->
-    <node pkg="nodelet" type="nodelet" name="$(arg manager)" args="manager" output="screen">
+    <node pkg="nodelet" type="nodelet" name="$(arg manager)" args="manager" output="screen" launch-prefix="$(arg manager_launch_prefix)">
       <param name="num_worker_threads" value="8" />
     </node>
 

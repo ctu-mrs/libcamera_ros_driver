@@ -1,0 +1,35 @@
+# do not modify these
+root: ./
+name: cam_test
+socket_name: mrs
+attach: false
+tmux_options: -f /etc/ctu-mrs/tmux.conf
+# you can modify these
+pre_window:
+  - source /opt/ros/noetic/setup.bash
+  - source ./../../../../devel/setup.bash 2>/dev/null || source ./../../../../install/setup.bash 2>/dev/null
+  - export UAV_NAME=uav80
+
+startup_window: sensors
+windows:
+  - roscore:
+      layout: tiled
+      panes:
+        - roscore
+  - sensors:
+      layout: tiled
+      panes:
+        # Each camera runs as a nodelet in its own manager (camera_<name>_manager),
+        # so each is a separate, monitorable process.
+        - sleep 3; roslaunch libcamera_ros_driver camera.launch standalone:=false camera_name:=front custom_config:="$PWD/config/front/camera_front.yaml" calib_url:="file://$PWD/config/front/roscalib.yaml"
+        - sleep 3; roslaunch libcamera_ros_driver camera.launch standalone:=false camera_name:=back  custom_config:="$PWD/config/back/camera_back.yaml"  calib_url:="file://$PWD/config/back/roscalib.yaml"
+  - test:
+      layout: tiled
+      panes:
+        - sleep 5; rostopic list
+#        - sleep 5; rosbag record -O /tmp/stress /$UAV_NAME/camera_front/image_raw /$UAV_NAME/camera_back/image_raw
+  - monitor:
+      layout: tiled
+      panes:
+        - sleep 5; bash monitor.sh camera_front_manager 120 no
+        - sleep 5; bash monitor.sh camera_back_manager 120 no

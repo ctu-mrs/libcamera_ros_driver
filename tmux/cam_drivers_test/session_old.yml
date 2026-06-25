@@ -1,0 +1,37 @@
+# do not modify these
+root: ./
+name: simulation
+socket_name: mrs
+attach: false
+tmux_options: -f /etc/ctu-mrs/tmux.conf
+# you can modify these
+pre_window:
+  - source /opt/ros/jazzy/setup.bash
+  - source ./../../../../install/setup.bash
+  - export RUN_TYPE=simulation
+  - export UAV_NAME=uav80
+  - export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+  - export USE_SIM_TIME=false
+  - export ZENOH_ROUTER_CONFIG_URI="$PWD/config/zenoh/uav_router.json5"
+
+startup_window: okvis2x
+windows:
+  - zenoh_router:
+      layout: tiled
+      panes:
+        - ros2 run rmw_zenoh_cpp rmw_zenohd
+  - sensors:
+      layout: tiled
+      panes:
+        - ros2 launch libcamera_ros_driver camera.launch.py custom_config:="$PWD/config/front/camera_front_old.yaml" camera_name:=front calib_url:="file://$PWD/config/front/roscalib.yaml"
+        - ros2 launch libcamera_ros_driver camera.launch.py custom_config:="$PWD/config/back/camera_back_old.yaml" camera_name:=back calib_url:="file://$PWD/config/back/roscalib.yaml"
+  - test:
+      layout: tiled
+      panes: 
+        - sleep 5; ros2 topic list
+#        - sleep 5; ros2 bag record -o /tmp/stress /$UAV_NAME/rpi_camera_front/image_raw /$UAV_NAME/rpi_camera_back/image_raw 
+  - monitor:
+      layout: tiled
+      panes:
+        - sleep 5; bash monitor.sh rpi_camera_front_container 120 no
+        - sleep 5; bash monitor.sh rpi_camera_back_container 120 no
