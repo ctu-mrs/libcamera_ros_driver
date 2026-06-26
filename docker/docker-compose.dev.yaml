@@ -1,0 +1,39 @@
+volumes:
+  build:
+  devel:
+  logs:
+
+services:
+  dev_shell:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: dev
+      args:
+        - USERNAME=devuser
+        - USER_UID=${USER_UID:-1000}
+        - USER_GID=${USER_GID:-1000}
+    image: fly4future/libcamera_ros_driver:latest
+    container_name: libcamera_ros_driver_dev_shell
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"
+    env_file:
+      - docker/.env
+    volumes:
+      # Mount the workspace's src/ onto the container src/ so the package lands
+      # directly at catkin_ws/src/libcamera_ros_driver (no extra nesting).
+      - ./src:/home/devuser/catkin_ws/src
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev:/dev
+      - build:/home/devuser/catkin_ws/build
+      - devel:/home/devuser/catkin_ws/devel
+      - logs:/home/devuser/catkin_ws/logs
+    working_dir: /home/devuser/catkin_ws
+    environment:
+      - DISPLAY=${DISPLAY}
+    network_mode: host
+    privileged: true
+    group_add:
+      - "44"    # video (libcamera device access)
+    stdin_open: true
+    tty: true
+    command: sleep infinity # Keep container running
