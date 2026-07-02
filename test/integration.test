@@ -1,0 +1,5 @@
+<launch>
+  <!-- Runs the frame-build unit tests + the image_transport round-trip under a roscore
+       (add_rostest_gtest starts the master). -->
+  <test test-name="test_integration" pkg="libcamera_ros_driver" type="test_integration" time-limit="60.0"/>
+</launch>

@@ -1,0 +1,5 @@
+mrs_icm_imu_driver:
+
+  main_timer:
+
+    rate: 200.0 # [Hz]

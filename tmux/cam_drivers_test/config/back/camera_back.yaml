@@ -1,0 +1,30 @@
+# Flat ROS1 params (loaded via <rosparam command="load"> into the nodelet's private
+# namespace -> no top-level node-name wrapper, unlike the ROS2 param format).
+camera_name: "/base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60"
+camera_id: 1
+stream_role: "video"
+pixel_format: "R8"
+resolution:
+  width: 1280
+  height: 800
+use_ros_time: true
+publish_mono8: true
+mono8_shift: 8
+dmabuf_sync: false
+control:
+  fps: 60
+  exposure_time: 6000 # Exposure time (shutter speed) for the frame applied in the sensor device. This value is specified in micro-seconds.
+  ae_constraint_mode: "normal" # [normal, highlight, shadows, custom]
+  brightness: 0.0 # Positive values (up to 1.0) produce brighter images; negative values (up to -1.0) produce darker images and 0.0 leaves pixels unchanged.
+  sharpness: 1.0 # A value of 0.0 means no sharpening. The minimum value means minimal sharpening, and shall be 0.0 unless the camera can't disable sharpening completely. The default value shall give a "reasonable" level of sharpening, suitable for most use cases. The maximum value may apply extremely high levels of sharpening, higher than anyone could reasonably want. Negative values are not allowed. Note also that sharpening is not applied to raw streams.
+  colour_gain: 0.0 # Pair of gain values for the Red and Blue colour channels, in that order. ColourGains can only be applied in a Request when the AWB is disabled.
+  ae_enable: false
+  saturation: 1.0 # Specify a fixed saturation parameter. Normal saturation is given by the value 1.0; larger values produce more saturated colours; 0.0 produces a greyscale image.
+  contrast: 1.0 # Specify a fixed contrast parameter. Normal contrast is given by the value 1.0; larger values produce images with more contrast.
+  exposure_value: 0.0 # Specify an Exposure Value (EV) parameter. The EV parameter will only be applied if the AE algorithm is currently enabled.
+  analogue_gain: 3.0 # Analogue gain value applied in the sensor device. The value of the control specifies the gain multiplier applied to all colour channels. This value cannot be lower than 1.0.
+  awb_enable: false
+  awb_mode: "auto" # [auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom]
+  ae_metering_mode: "centre-weighted" # [centre-weighted, spot, matrix, custom]
+  scaler_crop: [0, 0, 1456, 1088] # Sets the image portion that will be scaled to form the whole of the final output image. (example of usage: [0, 0, 1456, 1088] is [(0, 0)/1456x1088])
+  ae_exposure_mode: "normal" # [normal, short, long, custom]

@@ -1,0 +1,12 @@
+# Per-camera override for the RIGHT sensor of a stereo pair.
+# Loaded after default.yaml (so these keys win). Flat keys: the nodelet reads its
+# private params directly (~camera_name, ~camera_id, ...), so there is no namespace prefix.
+#
+# Select by index (robust default): empty camera_name disables name matching, so
+# camera_id is used verbatim.
+camera_name: ""
+camera_id: 1
+
+# Alternative: select by the unique i2c path (see config.txt dtoverlay cam0/cam1).
+# Comment out the two lines above and use, e.g.:
+# camera_name: "i2c@88000"

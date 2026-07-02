@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cctype>
 #include <cerrno>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -16,6 +17,9 @@
 #include <stdexcept>
 #include <string>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <linux/dma-buf.h>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -33,6 +37,7 @@
 #include <libcamera_ros_driver/utils/types.h>
 #include <libcamera_ros_driver/utils/pv_to_cv.h>
 #include <libcamera_ros_driver/utils/is_vector.h>
+#include <libcamera_ros_driver/detail/frame_msg.h>
 
 #include <ros/ros.h>
 #include <nodelet/nodelet.h>
@@ -40,12 +45,45 @@
 #include <image_transport/image_transport.h>
 
 #include <std_msgs/Header.h>
+#include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
 
 //}
 
 namespace libcamera_ros_driver
 {
+
+/* getCameraManager() //{ */
+
+// libcamera forbids more than one CameraManager per process (CameraManager ctor
+// calls LOG(Camera, Fatal) -> abort if a second is created). To run several camera
+// nodelets in one nodelet manager (e.g. a true stereo pair sharing a process for
+// coherent timestamps), they must share a single manager. This returns a process-wide
+// instance, started once on first use and stopped (via ~CameraManager) when the last
+// nodelet releases its shared_ptr.
+// ponytail: weak_ptr + mutex, the simplest correct lifetime. Upgrade only if start/stop
+// ever needs to be decoupled from nodelet lifetime.
+static std::shared_ptr<libcamera::CameraManager> getCameraManager() {
+
+  static std::mutex                              mtx;
+  static std::weak_ptr<libcamera::CameraManager> weak;
+
+  std::scoped_lock lock(mtx);
+
+  if (auto cm = weak.lock()) {
+    return cm;
+  }
+
+  auto cm = std::make_shared<libcamera::CameraManager>();
+  if (cm->start() != 0) {
+    throw std::runtime_error("Failed to start libcamera CameraManager");
+  }
+
+  weak = cm;
+  return cm;
+}
+
+//}
 
 /* ParamCheck() method //{ */
 template <typename T>
@@ -100,7 +138,7 @@ public:
 private:
   ros::NodeHandle nh_;
 
-  libcamera::CameraManager                         camera_manager_;
+  std::shared_ptr<libcamera::CameraManager>        camera_manager_;
   std::shared_ptr<libcamera::Camera>               camera_;
   libcamera::Stream *                              stream_;
   std::shared_ptr<libcamera::FrameBufferAllocator> allocator_;
@@ -108,6 +146,25 @@ private:
   std::mutex                                       request_lock_;
 
   std::string frame_id_;
+
+  // per-frame-constant image properties, cached at init to keep the callback free of map
+  // lookups and a per-frame std::string heap allocation
+  bool        is_raw_ = false;
+  std::string encoding_;
+  uint32_t    img_width_  = 0;
+  uint32_t    img_height_ = 0;
+  uint32_t    img_step_   = 0;
+  uint32_t    src_stride_ = 0;  // input row stride in bytes (for mono16->mono8 narrowing)
+
+  // opt-in: publish MONO8 by narrowing a MONO16 frame. Halves the serialized payload for
+  // consumers (e.g. VIO) that only use 8-bit greyscale. Default off keeps the raw R16 output.
+  bool mono8_       = false;
+  int  mono8_shift_ = 8;  // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
+
+  // dmabuf cache invalidate/flush around the CPU read of each frame. Necessary for correct
+  // reads of NON-coherent capture buffers; pure overhead if the buffers are already coherent.
+  // ponytail: default ON = always correct. Turn off only after confirming images stay intact.
+  bool dmabuf_sync_ = true;
 
   bool _use_ros_time_ = false;
 
@@ -118,13 +175,38 @@ private:
   {
     void * data;
     size_t size;
+    int    fd;  // dmabuf fd, for cache-sync around CPU reads
   };
   std::unordered_map<const libcamera::FrameBuffer *, buffer_info_t> buffer_info_;
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
+  // ponytail: cached once at init to avoid a per-frame copy + mutex inside the callback;
+  // does not reflect runtime recalibration via the set_camera_info service. Refresh on that service if ever needed.
+  sensor_msgs::CameraInfo cinfo_msg_;
 
   image_transport::CameraPublisher image_pub_;
-  std::mutex                       image_pub_mutex_;
+
+  // Frame offload: the libcamera requestCompleted callback runs on the CameraManager's single
+  // (per-process, shared in stereo) thread, so doing the per-frame work there serializes both
+  // cameras onto one core. We hand the RAW capture buffer to a per-nodelet worker thread, which
+  // does the copy + mono8 narrow + serialize + publish off the camera thread (parallel across
+  // cameras) and then re-queues the request -- the buffer must stay intact until it has copied.
+  // ponytail: single-slot latest-frame-wins. A queue would only add latency for a live camera;
+  // a superseded frame's request is re-queued immediately so its buffer is never leaked.
+  std::thread             publish_thread_;
+  std::mutex              publish_mutex_;
+  std::condition_variable publish_cv_;
+  struct PendingFrame
+  {
+    libcamera::Request * request = nullptr;  // re-queued by the worker once the buffer is copied
+    const uint8_t *      data    = nullptr;
+    size_t               size    = 0;
+    int                  fd      = -1;  // dmabuf fd for cache-sync, or -1 to skip
+    std_msgs::Header     hdr;
+  };
+  PendingFrame pending_;
+  bool         publish_stop_ = false;
+  void         publishLoop();
 
   // map parameter names to libcamera control id
   std::unordered_map<std::string, const libcamera::ControlId *> parameter_ids_;
@@ -176,11 +258,18 @@ void LibcameraRosDriver::onInit() {
     return;
   }
 
+  // optional performance / format parameters (defaults are the member initializers)
+  getOptionalParamCheck(nh_, "LibcameraRosDriver", "publish_mono8", mono8_);
+  if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "mono8_shift", mono8_shift_)) {
+    mono8_shift_ = std::clamp(mono8_shift_, 0, 15);  // a uint16 shift outside [0,15] is UB
+  }
+  getOptionalParamCheck(nh_, "LibcameraRosDriver", "dmabuf_sync", dmabuf_sync_);
+
   //}
 
-  // start camera manager and check for cameras
-  camera_manager_.start();
-  if (camera_manager_.cameras().empty()) {
+  // start (or join) the process-wide camera manager and check for cameras
+  camera_manager_ = getCameraManager();
+  if (camera_manager_->cameras().empty()) {
     ROS_ERROR("[LibcameraRosDriver]: no cameras available");
     ros::shutdown();
     return;
@@ -189,10 +278,10 @@ void LibcameraRosDriver::onInit() {
   if (!camera_name.empty()) {
     std::vector<std::string> available_cameras;
     ROS_INFO_STREAM("[LibcameraRosDriver]: Available cameras:");
-    for (int i = 0; i < camera_manager_.cameras().size(); i++) {
-      available_cameras.push_back(camera_manager_.cameras().at(i)->id());
+    for (size_t i = 0; i < camera_manager_->cameras().size(); i++) {
+      available_cameras.push_back(camera_manager_->cameras().at(i)->id());
     }
-    for (int i = 0; i < available_cameras.size(); i++) {
+    for (size_t i = 0; i < available_cameras.size(); i++) {
       if (available_cameras.at(i).find(camera_name) != std::string::npos) {
         ROS_INFO_STREAM("[LibcameraRosDriver]: found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
         camera_id = i;
@@ -201,13 +290,13 @@ void LibcameraRosDriver::onInit() {
     }
   }
 
-  if (camera_id >= camera_manager_.cameras().size()) {
-    ROS_INFO_STREAM(camera_manager_);
+  if (camera_id >= int(camera_manager_->cameras().size())) {
+    ROS_INFO_STREAM(*camera_manager_);
     ROS_ERROR_STREAM("[LibcameraRosDriver]: camera with id " << camera_name << " does not exist");
     ros::shutdown();
     return;
   }
-  camera_ = camera_manager_.cameras().at(camera_id);
+  camera_ = camera_manager_->cameras().at(camera_id);
   ROS_INFO_STREAM("[LibcameraRosDriver]: Use camera by id: " << camera_id);
 
   if (!camera_) {
@@ -286,6 +375,13 @@ void LibcameraRosDriver::onInit() {
     scfg.size = size;
   }
 
+  // The StillCapture/Raw roles default to a very low buffer count on the RPi pipeline
+  // (often 1). With so few buffers the sensor stalls the moment our callback is still
+  // holding one, capping the rate far below the requested fps. Give the pipeline enough
+  // in-flight buffers to keep capturing while a frame is copied/published.
+  // ponytail: 4 is the RPi viewfinder/video default; raise it only if drops persist.
+  scfg.bufferCount = std::max<unsigned int>(scfg.bufferCount, 4);
+
   // store selected stream configuration
   const libcamera::StreamConfiguration selected_scfg = scfg;
 
@@ -328,6 +424,29 @@ void LibcameraRosDriver::onInit() {
 
   ROS_INFO_STREAM("[LibcameraRosDriver]: camera \"" << camera_->id() << "\" configured with " << scfg.toString() << " stream");
 
+  // cache per-frame-constant image properties (format/size are fixed after configure)
+  is_raw_     = (format_type(scfg.pixelFormat) == FormatType::RAW);
+  encoding_   = get_ros_encoding(scfg.pixelFormat);
+  img_width_  = scfg.size.width;
+  img_height_ = scfg.size.height;
+  src_stride_ = scfg.stride;
+  img_step_   = scfg.stride;
+
+  // mono8 narrowing only applies to a 16-bit mono source; otherwise fall back to passthrough
+  if (mono8_ && encoding_ == "mono16") {
+    encoding_ = "mono8";
+    img_step_ = img_width_;  // 1 byte/pixel, tightly packed
+    ROS_INFO_STREAM("[LibcameraRosDriver]: publish_mono8: narrowing MONO16 -> MONO8 (shift " << mono8_shift_ << ")");
+  } else if (mono8_) {
+    mono8_ = false;
+    ROS_WARN_STREAM("[LibcameraRosDriver]: publish_mono8 requested but source encoding is '" << encoding_ << "', not mono16; publishing unchanged");
+  }
+
+  if (!dmabuf_sync_) {
+    ROS_WARN("[LibcameraRosDriver]: dmabuf_sync disabled: skipping cache invalidate around frame reads. "
+             "Verify images are intact -- non-coherent buffers can read stale/torn data.");
+  }
+
   declareControlParameters();
 
   int              param_int;
@@ -336,57 +455,67 @@ void LibcameraRosDriver::onInit() {
   bool             param_bool;
   std::vector<int> param_vector_int;
 
+  // Apply a control only if the camera actually exposes it. A mono/grayscale sensor (e.g.
+  // ov9281) lacks colour controls like Saturation/Contrast/AwbMode, so parameter_ids_[name]
+  // is null for them; dereferencing ->type() on that null is what segfaulted onInit. Guard
+  // every control uniformly here (previously only AwbEnable was guarded).
+  // ponytail: generic lambda over the existing pv_to_cv(value, type) shape -> one guard, no
+  // per-control duplication; the next mono-only control can't reintroduce the crash.
+  auto set_control = [&](const std::string &ctl_name, auto &&raw_value) {
+    const libcamera::ControlId *id = parameter_ids_[ctl_name];
+    if (!id) {
+      ROS_WARN_STREAM("[LibcameraRosDriver]: control '" << ctl_name << "' not available on this camera (e.g. grayscale sensor); skipping");
+      return;
+    }
+    updateControlParameter(pv_to_cv(std::forward<decltype(raw_value)>(raw_value), id->type()), id);
+  };
+
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/exposure_time", param_int)) {
-    updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
+    set_control("ExposureTime", param_int);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/fps", param_float)) {
     int64_t frame_time = 1000000 / param_float;
-    updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
-                           parameter_ids_["FrameDurationLimits"]);
+    set_control("FrameDurationLimits", std::vector<int64_t>{frame_time, frame_time});
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/ae_constraint_mode", param_string)) {
-    updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
+    set_control("AeConstraintMode", get_ae_constraint_mode(param_string));
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/brightness", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
+    set_control("Brightness", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/sharpness", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
+    set_control("Sharpness", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/awb_enable", param_bool)) {
-    if (parameter_ids_["AwbEnable"])  // if the parameter is set when not available, we would get a segmentation fault upon extracting its ->type()
-      updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
-    else
-      ROS_ERROR_STREAM("[LibcameraRosDriver]: Parameter AwbEnable is not available! Maybe the selected camera is grayscale");
+    set_control("AwbEnable", param_bool);
   }
-  /* updateControlParameter<std::vector<float>>(std::string("control/colour_gains"), parameter_ids_["ColourGains"]); */
+  /* set_control("ColourGains", colour_gains_vector); */
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/ae_enable", param_bool)) {
-    updateControlParameter(pv_to_cv(param_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
+    set_control("AeEnable", param_bool);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/saturation", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
+    set_control("Saturation", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/contrast", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
+    set_control("Contrast", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/exposure_value", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
+    set_control("ExposureValue", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/analogue_gain", param_float)) {
-    updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
+    set_control("AnalogueGain", param_float);
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/awb_mode", param_string)) {
-    updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
+    set_control("AwbMode", get_awb_mode(param_string));
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/ae_metering_mode", param_string)) {
-    updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
+    set_control("AeMeteringMode", get_ae_metering_mode(param_string));
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/scaler_crop", param_vector_int)) {
-    updateControlParameter(pv_to_cv(std::vector<int64_t>{param_vector_int.begin(), param_vector_int.end()}, parameter_ids_["ScalerCrop"]->type()),
-                           parameter_ids_["ScalerCrop"]);
+    set_control("ScalerCrop", std::vector<int64_t>{param_vector_int.begin(), param_vector_int.end()});
   }
   if (getOptionalParamCheck(nh_, "LibcameraRosDriver", "control/control", param_string)) {
-    updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
+    set_control("AeExposureMode", get_ae_exposure_mode(param_string));
   }
 
   // allocate stream buffers and create one request per buffer
@@ -442,7 +571,7 @@ void LibcameraRosDriver::onInit() {
       return;
     }
 
-    buffer_info_[buffer.get()] = {data, buffer_length};
+    buffer_info_[buffer.get()] = {data, buffer_length, fd};
 
     if (request->addBuffer(stream_, buffer.get()) < 0) {
       ROS_ERROR("[LibcameraRosDriver]: Can't set buffer for request");
@@ -459,11 +588,12 @@ void LibcameraRosDriver::onInit() {
   }
 
   cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(nh_, camera_name, calib_url);
+  cinfo_msg_ = cinfo_->getCameraInfo();
 
   /* initialize publishers //{ */
 
   image_transport::ImageTransport it(nh_);
-  image_pub_ = it.advertiseCamera("image_raw", 5);
+  image_pub_ = it.advertiseCamera("image_raw", 1);
 
   //}
 
@@ -476,6 +606,9 @@ void LibcameraRosDriver::onInit() {
     ros::shutdown();
     return;
   }
+
+  // start the publish worker before frames begin arriving
+  publish_thread_ = std::thread(&LibcameraRosDriver::publishLoop, this);
 
   for (std::unique_ptr<libcamera::Request> &request : requests_) {
     camera_->queueRequest(request.get());
@@ -491,7 +624,18 @@ void LibcameraRosDriver::onInit() {
 
 LibcameraRosDriver::~LibcameraRosDriver() {
 
-  camera_->requestCompleted.disconnect();
+  camera_->requestCompleted.disconnect();  // no more frames handed off after this
+
+  // Stop the worker BEFORE the camera: the worker calls queueRequest, so it must be done
+  // before we stop the camera. Any frame still pending is dropped; camera stop reclaims it.
+  {
+    std::scoped_lock lock(publish_mutex_);
+    publish_stop_ = true;
+  }
+  publish_cv_.notify_one();
+  if (publish_thread_.joinable()) {
+    publish_thread_.join();
+  }
 
   {
     std::scoped_lock lock(request_lock_);
@@ -502,7 +646,8 @@ LibcameraRosDriver::~LibcameraRosDriver() {
   }
 
   camera_->release();
-  camera_manager_.stop();
+  // Do not stop the manager here: it is shared. Dropping our shared_ptr (member
+  // destruction) stops it only once the last camera nodelet is gone.
 
   for (const auto &e : buffer_info_) {
     if (munmap(e.second.data, e.second.size) == -1) {
@@ -595,69 +740,146 @@ void LibcameraRosDriver::requestComplete(libcamera::Request *request) {
 
   std::scoped_lock lock(request_lock_);
 
-  if (request->status() == libcamera::Request::RequestComplete) {
+  // If we hand the buffer to the worker, the worker re-queues the request (after it has copied
+  // out of the buffer); we must NOT re-queue here or the buffer would be reused mid-read. Every
+  // other path re-queues below, so a request can never leave without going back to the pool --
+  // a leaked request drains the finite pool and silently stops the camera forever.
+  bool                handed_off = false;
+  libcamera::Request *dropped    = nullptr;
 
-    assert(request->buffers().size() == 1);
+  try {
 
-    // get the stream and buffer from the request
-    const libcamera::FrameBuffer *  buffer    = request->findBuffer(stream_);
-    const libcamera::FrameMetadata &metadata  = buffer->metadata();
-    size_t                          bytesused = 0;
+    if (request->status() == libcamera::Request::RequestComplete) {
 
-    for (const libcamera::FrameMetadata::Plane &plane : metadata.planes()) {
-      bytesused += plane.bytesused;
-    }
+      assert(request->buffers().size() == 1);
 
-    // send image data
-    std_msgs::Header hdr;
+      const libcamera::FrameBuffer *  buffer   = request->findBuffer(stream_);
+      const libcamera::FrameMetadata &metadata = buffer->metadata();
 
-    hdr.stamp = ros::Time().fromNSec(metadata.timestamp);
-    if (_use_ros_time_) {
-      if (!start_time_offset_obtained_) {
-        start_time_offset_          = ros::Time::now() - hdr.stamp;
-        start_time_offset_obtained_ = true;
+      // Only hand off for the expensive work when the format is raw AND someone is listening.
+      if (is_raw_ && image_pub_.getNumSubscribers() > 0) {
+
+        std_msgs::Header hdr;
+        hdr.stamp = ros::Time().fromNSec(metadata.timestamp);
+        if (_use_ros_time_) {
+          if (!start_time_offset_obtained_) {
+            start_time_offset_          = ros::Time::now() - hdr.stamp;
+            start_time_offset_obtained_ = true;
+          }
+          hdr.stamp += start_time_offset_;
+        }
+        hdr.frame_id = frame_id_;
+
+        const buffer_info_t &binfo = buffer_info_.at(buffer);
+
+        // hand the RAW buffer to the worker (latest-frame-wins). The copy/narrow + publish run
+        // there, off this shared camera thread. fd < 0 tells the worker to skip the cache-sync.
+        {
+          std::scoped_lock pub_lock(publish_mutex_);
+          if (pending_.request) {
+            dropped = pending_.request;  // worker hasn't taken the previous frame -> we drop it
+          }
+          pending_.request = request;
+          pending_.data    = static_cast<const uint8_t *>(binfo.data);
+          pending_.size    = binfo.size;
+          pending_.fd      = dmabuf_sync_ ? binfo.fd : -1;
+          pending_.hdr     = hdr;
+        }
+        publish_cv_.notify_one();
+        handed_off = true;
+
+      } else if (!is_raw_) {
+        ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: unsupported pixel format: " << stream_->configuration().pixelFormat.toString());
       }
-      hdr.stamp += start_time_offset_;
+
+    } else if (request->status() == libcamera::Request::RequestCancelled) {
+      // Usually a PiSP frontend timeout (CSI/ISP bandwidth) or shutdown. We still re-queue
+      // below so the camera can recover if it was transient.
+      ROS_WARN_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: request cancelled (camera may have stalled): " << request->toString());
     }
 
-    hdr.frame_id                              = frame_id_;
-    const libcamera::StreamConfiguration &cfg = stream_->configuration();
-
-    sensor_msgs::Image image_msg;
-
-    if (format_type(cfg.pixelFormat) == FormatType::RAW) {
-      // raw uncompressed image
-      assert(buffer_info_[buffer].size == bytesused);
-      image_msg.header       = hdr;
-      image_msg.width        = cfg.size.width;
-      image_msg.height       = cfg.size.height;
-      image_msg.step         = cfg.stride;
-      image_msg.encoding     = get_ros_encoding(cfg.pixelFormat);
-      image_msg.is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-      image_msg.data.resize(buffer_info_[buffer].size);
-      memcpy(image_msg.data.data(), buffer_info_[buffer].data, buffer_info_[buffer].size);
-
-    } else {
-      ROS_ERROR_STREAM("[LibcameraRosDriver]: unsupported pixel format: " << stream_->configuration().pixelFormat.toString());
-      return;
-    }
-
-    sensor_msgs::CameraInfo cinfo_msg = cinfo_->getCameraInfo();
-    cinfo_msg.header                  = hdr;
-
-    {
-      std::scoped_lock lock(image_pub_mutex_);
-
-      image_pub_.publish(image_msg, cinfo_msg);
-    }
-
-  } else if (request->status() == libcamera::Request::RequestCancelled) {
-    ROS_ERROR_STREAM("[LibcameraRosDriver]: request '" << request->toString() << "' cancelled");
+  }
+  catch (const std::exception &e) {
+    ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: requestComplete dropped a frame: " << e.what());
   }
 
-  // queue the request again for the next frame
-  request->reuse(libcamera::Request::ReuseBuffers);
-  camera_->queueRequest(request);
+  // A superseded (dropped) frame's request is re-queued here -- the worker will never see it.
+  if (dropped) {
+    dropped->reuse(libcamera::Request::ReuseBuffers);
+    if (camera_->queueRequest(dropped) < 0) {
+      ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: queueRequest (dropped frame) failed");
+    }
+  }
+
+  // Re-queue THIS request unless the worker now owns it (it re-queues after copying).
+  if (!handed_off) {
+    request->reuse(libcamera::Request::ReuseBuffers);
+    if (camera_->queueRequest(request) < 0) {
+      ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: queueRequest failed -- camera is no longer accepting buffers (stalled/stopped)");
+    }
+  }
+}
+
+//}
+
+/* LibcameraRosDriver::publishLoop() //{ */
+
+// Drains the single-slot handoff and runs the heavy per-frame work (copy + mono8 narrow +
+// serialize + publish) off the shared camera thread. Re-queues the request as soon as the
+// buffer has been copied, so capture continues while we serialize/publish.
+void LibcameraRosDriver::publishLoop() {
+
+  while (true) {
+
+    PendingFrame f;
+    {
+      std::unique_lock<std::mutex> lock(publish_mutex_);
+      publish_cv_.wait(lock, [this] { return pending_.request || publish_stop_; });
+
+      if (publish_stop_) {
+        return;  // shutting down: any pending frame is dropped; camera stop reclaims its buffer
+      }
+
+      f        = pending_;
+      pending_ = PendingFrame();  // reset slot
+    }
+
+    // the expensive copy + narrow, now off the camera thread
+    bool               built = false;
+    sensor_msgs::Image img;
+    try {
+      img = mono8_ ? detail::fillImageMsgMono8(f.hdr, img_width_, img_height_, src_stride_, f.data, f.fd, mono8_shift_)
+                   : detail::fillImageMsg(f.hdr, img_width_, img_height_, img_step_, encoding_, f.data, f.size, f.fd);
+      built = true;
+    }
+    catch (const std::exception &e) {
+      ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: frame build failed: " << e.what());
+    }
+
+    // we are done reading the buffer -> re-queue the request so the camera keeps capturing
+    {
+      std::scoped_lock lock(request_lock_);
+      f.request->reuse(libcamera::Request::ReuseBuffers);
+      if (camera_->queueRequest(f.request) < 0) {
+        ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: queueRequest (worker) failed");
+      }
+    }
+
+    if (!built) {
+      continue;  // build failed; request already re-queued above
+    }
+
+    sensor_msgs::CameraInfo info = cinfo_msg_;
+    info.header                  = f.hdr;
+
+    // guard the publish: a throw here would otherwise terminate the whole process
+    try {
+      image_pub_.publish(img, info);
+    }
+    catch (const std::exception &e) {
+      ROS_ERROR_STREAM_THROTTLE(1.0, "[LibcameraRosDriver]: publish failed: " << e.what());
+    }
+  }
 }
 
 //}

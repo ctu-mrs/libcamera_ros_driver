@@ -17,6 +17,11 @@ resolution:
 
 use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
 
+# --- performance / format options (optional) ---
+publish_mono8: false # if true and the source is MONO16, narrow it to MONO8 (halves the published payload; for 8-bit greyscale consumers like VIO)
+mono8_shift: 8       # right-shift applied during MONO16->MONO8 narrowing. PiSP delivers MSB-aligned samples, so 8 takes the top byte. 10-bit right-justified -> 2, 12-bit -> 4
+dmabuf_sync: true    # invalidate/flush the dmabuf cache around each CPU frame read. Keep ON for correctness on non-coherent buffers; disable only after verifying images stay intact
+
 # frame_id and calib_url parameters are set using launch file
 
 ## --------------------------------------------------------------

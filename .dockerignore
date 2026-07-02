@@ -1,0 +1,12 @@
+.git
+.github
+.serena
+.vscode
+docker_inspo
+build
+devel
+install
+logs
+HANDOFF.md
+*.swp
+*.swo

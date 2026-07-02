@@ -1,0 +1,20 @@
+image_width: 1280
+image_height: 800
+camera_name: /base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [603.8961096736965, 0, 636.8601981137917, 0, 603.063564518075, 442.4857618079316, 0, 0, 1.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+distortion_model: equidistant
+distortion_coefficients:
+  rows: 1
+  cols: 4
+  data: [-0.1982949538259762, 0.04480862654364349, -0.02634536957023091, 0.007980610602187589]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [603.8961096736965, 0.0, 636.8601981137917, 0.0, 0.0, 603.063564518075, 442.4857618079316, 0.0, 0.0, 0.0, 1.0, 0.0]

@@ -1,0 +1,9 @@
+libcamera_ros_driver:
+  camera_name: "/base/axi/pcie@1000120000/rp1/i2c@88000/ov9281@60"
+  camera_id: 0
+  resolution:
+    width: 1280
+    height: 800
+  use_ros_time: true
+  control:
+    fps: 60
