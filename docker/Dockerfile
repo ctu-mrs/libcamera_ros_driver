@@ -2,7 +2,7 @@ ARG PPA_VARIANT=stable
 
 FROM ctumrs/mrs_uav_system:${PPA_VARIANT} AS base
 
-WORKDIR /root/ros2_ws
+WORKDIR /opt/ros2_ws
 
 RUN git clone --depth 1 -b ros2 https://github.com/ctu-mrs/libcamera_ros.git src/libcamera_ros && \
     git clone --depth 1 -b ros2 https://github.com/ctu-mrs/libcamera_ros_driver.git src/libcamera_ros_driver && \
@@ -15,6 +15,6 @@ FROM ctumrs/mrs_uav_system:${PPA_VARIANT}
 
 COPY ros_entrypoint.sh /
 
-COPY --from=base /root/ros2_ws/install /root/ros2_ws/install
+COPY --from=base /opt/ros2_ws/install /opt/ros2_ws/install
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
