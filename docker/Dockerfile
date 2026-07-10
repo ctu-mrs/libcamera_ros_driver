@@ -1,6 +1,7 @@
 ARG PPA_VARIANT=stable
+ARG BASE_IMAGE=ctumrs/mrs_uav_system_core:${PPA_VARIANT}
 
-FROM ctumrs/mrs_uav_system_core:${PPA_VARIANT} AS base
+FROM ${BASE_IMAGE} AS base 
 
 WORKDIR /opt/ros2_ws
 
@@ -11,7 +12,7 @@ RUN git clone --depth 1 -b ros2 https://github.com/ctu-mrs/libcamera_ros.git src
     colcon build --merge-install && apt-get clean && rm -rf /var/lib/apt/lists/* build log src
 
 
-FROM ctumrs/mrs_uav_system_core:${PPA_VARIANT}
+FROM ${BASE_IMAGE}
 
 COPY ros_entrypoint.sh /
 
