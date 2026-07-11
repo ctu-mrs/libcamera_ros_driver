@@ -42,6 +42,7 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 
 #include <mrs_lib/param_loader.h>
+#include <mrs_lib/dynparam_mgr.h>
 #include <mrs_lib/node.h>
 
 //}
@@ -167,10 +168,21 @@ namespace libcamera_ros_driver
     // parameters that are to be set for every request
     std::unordered_map<unsigned int, libcamera::ControlValue> parameters_;
 
+    std::mutex controls_mutex_;
+    std::unordered_map<unsigned int, libcamera::ControlValue> pending_controls_;
+    int pending_apply_count_ = 0;
+
+    std::unique_ptr<mrs_lib::DynparamMgr> dynparam_mgr_;
+    std::string af_mode_str_;
+    double lens_position_ = 0.0;
+
     void declareControlParameters();
     void requestComplete(libcamera::Request* request);
 
+    bool validateControlValue(const libcamera::ControlValue& value, const libcamera::ControlId* id);
     bool updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id);
+    void setControlPending(const libcamera::ControlValue& value, const libcamera::ControlId* id);
+    void injectPendingControls(libcamera::Request* request);
   };
 
   //}
@@ -507,6 +519,76 @@ namespace libcamera_ros_driver
     if (parameter_ids_.count("AeExposureMode"))
       updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
 
+    param_loader.loadParam("control/af_range", param_string, std::string("normal"));
+    if (parameter_ids_.count("AfRange"))
+      updateControlParameter(pv_to_cv(get_af_range(param_string), parameter_ids_["AfRange"]->type()), parameter_ids_["AfRange"]);
+
+    param_loader.loadParam("control/af_speed", param_string, std::string("normal"));
+    if (parameter_ids_.count("AfSpeed"))
+      updateControlParameter(pv_to_cv(get_af_speed(param_string), parameter_ids_["AfSpeed"]->type()), parameter_ids_["AfSpeed"]);
+
+    /* dynamic focus parameters //{ */
+
+    dynparam_mgr_ = std::make_unique<mrs_lib::DynparamMgr>(node_, controls_mutex_);
+
+    std::string config_path;
+    if (node_->has_parameter("config"))
+      config_path = node_->get_parameter("config").as_string();
+
+    mrs_lib::ParamProvider& focus_pp = dynparam_mgr_->get_param_provider();
+    focus_pp.setPrefix("libcamera_ros_driver/control/");
+    if (!custom_config_path.empty())
+      focus_pp.addYamlFile(custom_config_path);
+    if (!config_path.empty())
+      focus_pp.addYamlFile(config_path);
+
+    mrs_lib::DynparamMgr::update_cbk_t<std::string> af_mode_cbk = [this](const std::string& mode) {
+      if (!parameter_ids_.count("AfMode"))
+        return;
+      try
+      {
+        setControlPending(pv_to_cv(get_af_mode(mode), parameter_ids_["AfMode"]->type()), parameter_ids_["AfMode"]);
+      }
+      catch (const std::exception& e)
+      {
+        RCLCPP_ERROR_STREAM(node_->get_logger(), "af_mode update rejected: " << e.what());
+      }
+    };
+
+    mrs_lib::DynparamMgr::update_cbk_t<double> lens_position_cbk = [this](const double& position) {
+      if (!parameter_ids_.count("LensPosition"))
+        return;
+      setControlPending(pv_to_cv(position, parameter_ids_["LensPosition"]->type()), parameter_ids_["LensPosition"]);
+    };
+
+    dynparam_mgr_->register_param<std::string>("af_mode", &af_mode_str_, std::string("continuous"), af_mode_cbk);
+
+    mrs_lib::DynparamMgr::range_t<double> lens_range{0.0, 20.0};
+    if (parameter_ids_.count("LensPosition"))
+    {
+      const libcamera::ControlInfo& lens_ci = camera_->controls().at(parameter_ids_["LensPosition"]);
+      if (!lens_ci.min().isNone())
+        lens_range.minimum = lens_ci.min().get<float>();
+      if (!lens_ci.max().isNone())
+        lens_range.maximum = lens_ci.max().get<float>();
+    }
+    dynparam_mgr_->register_param<double>("lens_position", &lens_position_, 0.0, lens_range, lens_position_cbk);
+
+    if (!dynparam_mgr_->loaded_successfully())
+    {
+      RCLCPP_ERROR(node_->get_logger(), "Could not load all focus parameters!");
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    if (parameter_ids_.count("AfMode"))
+      updateControlParameter(pv_to_cv(get_af_mode(af_mode_str_), parameter_ids_["AfMode"]->type()), parameter_ids_["AfMode"]);
+
+    if (parameter_ids_.count("LensPosition"))
+      updateControlParameter(pv_to_cv(lens_position_, parameter_ids_["LensPosition"]->type()), parameter_ids_["LensPosition"]);
+
+    //}
+
     // cache per-frame-constant image properties (format/size are fixed after configure)
     is_raw_ = (format_type(scfg.pixelFormat) == FormatType::RAW);
     encoding_ = get_ros_encoding(scfg.pixelFormat);
@@ -598,9 +680,11 @@ namespace libcamera_ros_driver
         return;
       }
 
-      // set modified control parameters
-      for (const auto& [id, value] : parameters_)
-        request->controls().set(id, value);
+      {
+        std::scoped_lock controls_lock(controls_mutex_);
+        for (const auto& [id, value] : parameters_)
+          request->controls().set(id, value);
+      }
 
       requests_.push_back(std::move(request));
     }
@@ -717,9 +801,9 @@ namespace libcamera_ros_driver
 
   //}
 
-  /* updateControlParameter() //{ */
+  /* validateControlValue() //{ */
 
-  bool LibcameraRosDriver::updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id)
+  bool LibcameraRosDriver::validateControlValue(const libcamera::ControlValue& value, const libcamera::ControlId* id)
   {
 
     if (value.isNone())
@@ -755,8 +839,52 @@ namespace libcamera_ros_driver
       return false;
     }
 
+    return true;
+  }
+
+  //}
+
+  /* updateControlParameter() //{ */
+
+  bool LibcameraRosDriver::updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id)
+  {
+    if (!validateControlValue(value, id))
+      return false;
+
     parameters_[id->id()] = value;
     return true;
+  }
+
+  //}
+
+  /* setControlPending() //{ */
+
+  void LibcameraRosDriver::setControlPending(const libcamera::ControlValue& value, const libcamera::ControlId* id)
+  {
+    if (!validateControlValue(value, id))
+      return;
+
+    parameters_[id->id()] = value;
+    pending_controls_[id->id()] = value;
+    pending_apply_count_ = static_cast<int>(requests_.size());
+  }
+
+  //}
+
+  /* injectPendingControls() //{ */
+
+  void LibcameraRosDriver::injectPendingControls(libcamera::Request* request)
+  {
+    std::scoped_lock controls_lock(controls_mutex_);
+
+    if (pending_apply_count_ <= 0)
+      return;
+
+    for (const auto& [id, value] : pending_controls_)
+      request->controls().set(id, value);
+
+    if (--pending_apply_count_ <= 0)
+      pending_controls_.clear();
   }
 
   //}
@@ -839,6 +967,7 @@ namespace libcamera_ros_driver
     if (dropped)
     {
       dropped->reuse(libcamera::Request::ReuseBuffers);
+      injectPendingControls(dropped);
       if (camera_->queueRequest(dropped) < 0)
         RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "queueRequest (dropped frame) failed");
     }
@@ -847,6 +976,7 @@ namespace libcamera_ros_driver
     if (!handed_off)
     {
       request->reuse(libcamera::Request::ReuseBuffers);
+      injectPendingControls(request);
       if (camera_->queueRequest(request) < 0)
         RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
                                      "queueRequest failed -- camera is no longer accepting buffers (stalled/stopped)");
@@ -892,6 +1022,7 @@ namespace libcamera_ros_driver
       {
         std::scoped_lock lock(request_lock_);
         f.request->reuse(libcamera::Request::ReuseBuffers);
+        injectPendingControls(f.request);
         if (camera_->queueRequest(f.request) < 0)
           RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "queueRequest (worker) failed");
       }

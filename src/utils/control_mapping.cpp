@@ -83,3 +83,71 @@ libcamera::controls::AwbModeEnum get_awb_mode(const std::string& mode)
     throw std::runtime_error("invalid awb mode: \"" + mode + "\"");
   }
 }
+
+/* get_af_mode() //{ */
+
+libcamera::controls::AfModeEnum get_af_mode(const std::string& mode)
+{
+  static const std::unordered_map<std::string, libcamera::controls::AfModeEnum> mode_map = {
+      {"manual", (libcamera::controls::AfModeEnum)0},
+      {"auto", (libcamera::controls::AfModeEnum)1},
+      {"continuous", (libcamera::controls::AfModeEnum)2},
+  };
+
+  try
+  {
+    return mode_map.at(mode);
+  }
+  catch (const std::out_of_range&)
+  {
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid af mode: \"" << mode << "\"");
+    throw std::runtime_error("invalid af mode: \"" + mode + "\"");
+  }
+}
+
+//}
+
+/* get_af_range() //{ */
+
+libcamera::controls::AfRangeEnum get_af_range(const std::string& mode)
+{
+  static const std::unordered_map<std::string, libcamera::controls::AfRangeEnum> mode_map = {
+      {"normal", (libcamera::controls::AfRangeEnum)0},
+      {"macro", (libcamera::controls::AfRangeEnum)1},
+      {"full", (libcamera::controls::AfRangeEnum)2},
+  };
+
+  try
+  {
+    return mode_map.at(mode);
+  }
+  catch (const std::out_of_range&)
+  {
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid af range: \"" << mode << "\"");
+    throw std::runtime_error("invalid af range: \"" + mode + "\"");
+  }
+}
+
+//}
+
+/* get_af_speed() //{ */
+
+libcamera::controls::AfSpeedEnum get_af_speed(const std::string& mode)
+{
+  static const std::unordered_map<std::string, libcamera::controls::AfSpeedEnum> mode_map = {
+      {"normal", (libcamera::controls::AfSpeedEnum)0},
+      {"fast", (libcamera::controls::AfSpeedEnum)1},
+  };
+
+  try
+  {
+    return mode_map.at(mode);
+  }
+  catch (const std::out_of_range&)
+  {
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid af speed: \"" << mode << "\"");
+    throw std::runtime_error("invalid af speed: \"" + mode + "\"");
+  }
+}
+
+//}

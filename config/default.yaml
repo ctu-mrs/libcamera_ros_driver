@@ -74,3 +74,10 @@ libcamera_ros_driver:
     # ae_metering_mode: "centre-weighted" # [centre-weighted, spot, matrix, custom]
     # scaler_crop: [0, 0, 1456, 1088] # Sets the image portion that will be scaled to form the whole of the final output image. (example of usage: [0, 0, 1456, 1088] is [(0, 0)/1456x1088])
     # ae_exposure_mode: "normal" # [normal, short, long, custom]
+
+    # Autofocus Arducam IMX519 and other AF modules
+    af_mode: "continuous"   # [manual, auto, continuous]
+    lens_position: 0.0      # dioptres (1/m); 0.0 = infinity. Only used when af_mode: manual.
+                            # Range is sensor-reported
+    # af_range: "normal"    # [normal, macro, full]  
+    # af_speed: "normal"    # [normal, fast]         

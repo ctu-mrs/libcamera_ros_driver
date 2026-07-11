@@ -209,6 +209,16 @@ custom_config (per-camera)  >  config/default.yaml  >  launch-file ROS params (f
 The full set of libcamera control parameters (brightness, sharpness, gains, metering, …) is
 documented inline in [`config/default.yaml`](config/default.yaml).
 
+### Autofocus relates to IMX519 and other AF modules 
+
+The original OV9281 is fixed-focus, but AF modules such as the Arducam IMX519 expose a VCM lens that libcamera drives through the `AfMode` / `LensPosition` controls. 
+| Parameter               | Default      | Notes                                                         |
+|-------------------------|--------------|---------------------------------------------------------------|
+| `control/af_mode`       | `continuous` | `[manual, auto, continuous]`.                                 |
+| `control/lens_position` | `0.0`        | Focus distance in 1/metres. Only used when `af_mode: manual`. |
+| `control/af_range`      | `normal`     | `[normal, macro, full]`. Startup only.                        |
+| `control/af_speed`      | `normal`     | `[normal, fast]`. Startup only.                               |
+
 ---
 
 ## Stereo synchronization
