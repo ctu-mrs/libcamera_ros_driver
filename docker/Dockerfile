@@ -1,4 +1,4 @@
-ARG PPA_VARIANT=stable
+ARG PPA_VARIANT=unstable
 ARG BASE_IMAGE=ctumrs/mrs_uav_system_core:${PPA_VARIANT}
 
 FROM ${BASE_IMAGE} AS base 
