@@ -28,6 +28,14 @@ libcamera_ros_driver:
     width: 1280
     height: 800
 
+  # Pins the sensor readout mode. Leave at 0 to let the pipeline handler choose (it picks
+  # from `resolution`, which on a multi-mode sensor may land on a CROPPED mode and narrow
+  # the FOV). Must match a mode from the "Available sensor modes" startup log exactly.
+  sensor_mode:
+    width: 0
+    height: 0
+    bit_depth: 0
+
   use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
 
   # Narrow a MONO16 source (R16) down to MONO8 in the driver, BEFORE publishing. Halves the
