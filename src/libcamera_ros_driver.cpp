@@ -11,6 +11,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <string>
@@ -223,6 +224,9 @@ namespace libcamera_ros_driver
     int camera_id;
     int resolution_width;
     int resolution_height;
+    int sensor_mode_width;
+    int sensor_mode_height;
+    int sensor_mode_bit_depth;
 
     param_loader.loadParam("frame_id", frame_id_);
     param_loader.loadParam("calib_url", calib_url);
@@ -235,6 +239,9 @@ namespace libcamera_ros_driver
     param_loader.loadParam("pixel_format", pixel_format);
     param_loader.loadParam("resolution/width", resolution_width);
     param_loader.loadParam("resolution/height", resolution_height);
+    param_loader.loadParam("sensor_mode/width", sensor_mode_width, 0);
+    param_loader.loadParam("sensor_mode/height", sensor_mode_height, 0);
+    param_loader.loadParam("sensor_mode/bit_depth", sensor_mode_bit_depth, 0);
     param_loader.loadParam("use_ros_time", _use_ros_time_);
     param_loader.loadParam("publish_mono8", mono8_, false);
     param_loader.loadParam("mono8_shift", mono8_shift_, 8);
@@ -402,6 +409,58 @@ namespace libcamera_ros_driver
     // ponytail: 4 is the RPi viewfinder/video default; raise it only if drops persist.
     scfg.bufferCount = std::max<unsigned int>(scfg.bufferCount, 4);
 
+    /* sensor mode selection //{ */
+
+    const bool sensor_mode_requested = sensor_mode_width > 0 && sensor_mode_height > 0;
+
+    {
+      std::unique_ptr<libcamera::CameraConfiguration> raw_cfg = camera_->generateConfiguration({libcamera::StreamRole::Raw});
+
+      if (raw_cfg && !raw_cfg->empty())
+      {
+        const libcamera::StreamFormats& raw_formats = raw_cfg->at(0).formats();
+
+        std::stringstream ss;
+
+        for (const libcamera::PixelFormat& pf : raw_formats.pixelformats())
+          ss << "\n  " << pf.toString() << " : " << raw_formats.range(pf).toString();
+
+        RCLCPP_INFO_STREAM(node_->get_logger(), "Sensor readout formats and size ranges (the bit depth is in the format name):" << ss.str());
+        RCLCPP_INFO(node_->get_logger(), "'sensor_mode' must name a DISCRETE mode of this sensor, not any size in that range -- list them with 'rpicam-hello --list-cameras'");
+        RCLCPP_INFO(node_->get_logger(), "The 'ScalerCrop' line below reports the resulting field of view: its default rectangle is the sensor area actually read out");
+      } else if (sensor_mode_requested)
+      {
+        RCLCPP_WARN(node_->get_logger(), "Could not enumerate sensor readout formats, 'sensor_mode' is being applied blind");
+      }
+    }
+
+    if (sensor_mode_requested)
+    {
+
+      if (sensor_mode_bit_depth <= 0)
+      {
+        RCLCPP_ERROR(node_->get_logger(), "'sensor_mode/bit_depth' must be set (and > 0) whenever a sensor mode is requested");
+        rclcpp::shutdown();
+        return;
+      }
+
+      libcamera::SensorConfiguration sensor_cfg;
+      sensor_cfg.bitDepth  = unsigned(sensor_mode_bit_depth);
+      sensor_cfg.outputSize = libcamera::Size(sensor_mode_width, sensor_mode_height);
+
+      cfg->sensorConfig = sensor_cfg;
+
+      RCLCPP_INFO_STREAM(node_->get_logger(), "Requesting sensor mode " << sensor_cfg.outputSize << " @ " << sensor_mode_bit_depth << " bits, output stream " << scfg.size);
+
+    } else if (sensor_mode_width != 0 || sensor_mode_height != 0)
+    {
+      RCLCPP_ERROR(node_->get_logger(), "'sensor_mode' is partially set, both width and height are required (or both 0 to let the pipeline choose)");
+      rclcpp::shutdown();
+      return;
+    }
+
+    //}
+
     // store selected stream configuration
     const libcamera::StreamConfiguration selected_scfg = scfg;
 
@@ -425,6 +484,11 @@ namespace libcamera_ros_driver
 
     case libcamera::CameraConfiguration::Invalid: {
       RCLCPP_ERROR(node_->get_logger(), "Failed to valid stream configuration");
+
+      if (sensor_mode_requested)
+        RCLCPP_ERROR_STREAM(node_->get_logger(), "The requested sensor mode " << libcamera::Size(sensor_mode_width, sensor_mode_height) << " @ " << sensor_mode_bit_depth
+                                                                             << " bits is not offered by this sensor, it must match a listed mode exactly");
+
       rclcpp::shutdown();
 
       return;
