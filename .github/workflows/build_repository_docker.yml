@@ -1,4 +1,4 @@
-name: ros_package_build_with_docker
+name: build_repository_docker
 on:
 
   push:
@@ -16,7 +16,7 @@ concurrency:
 jobs:
 
   build:
-    uses: ctu-mrs/ci_scripts/.github/workflows/ros_package_build_with_docker.yml@ros2
+    uses: ctu-mrs/ci_scripts/.github/workflows/build_repository_docker.yml@ros2
     with:
       base_image: ctumrs/mrs_uav_system_core:stable
       output_image: ctumrs/libcamera_ros_driver:arducam
