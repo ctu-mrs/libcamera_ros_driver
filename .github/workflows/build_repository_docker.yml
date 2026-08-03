@@ -20,6 +20,7 @@ jobs:
     with:
       base_image: ctumrs/mrs_uav_system_core:stable
       output_image: ctumrs/libcamera_ros_driver:arducam
+      wait_for_ppa: false
     secrets:
       PUSH_TOKEN: ${{ secrets.PUSH_TOKEN }}
       DOCKERHUB: ${{ secrets.DOCKERHUB }}
