@@ -67,10 +67,10 @@ libcamera::controls::AeConstraintModeEnum get_ae_constraint_mode(const std::stri
 libcamera::controls::AwbModeEnum get_awb_mode(const std::string& mode)
 {
   static const std::unordered_map<std::string, libcamera::controls::AwbModeEnum> mode_map = {
-      {"auto", (libcamera::controls::AwbModeEnum)0},         {"incandescent", (libcamera::controls::AwbModeEnum)1},
+      {"auto", (libcamera::controls::AwbModeEnum)0},     {"incandescent", (libcamera::controls::AwbModeEnum)1},
       {"tungsten", (libcamera::controls::AwbModeEnum)2}, {"fluorescent", (libcamera::controls::AwbModeEnum)3},
-      {"indoor", (libcamera::controls::AwbModeEnum)4},     {"daylight", (libcamera::controls::AwbModeEnum)5},
-      {"cloudy", (libcamera::controls::AwbModeEnum)6},     {"custom", (libcamera::controls::AwbModeEnum)7},
+      {"indoor", (libcamera::controls::AwbModeEnum)4},   {"daylight", (libcamera::controls::AwbModeEnum)5},
+      {"cloudy", (libcamera::controls::AwbModeEnum)6},   {"custom", (libcamera::controls::AwbModeEnum)7},
   };
 
   try

@@ -57,14 +57,14 @@ namespace libcamera_ros_driver::detail
   //
   // ponytail: shift is the knob -- 10-bit sensor -> 2, 12-bit -> 4. Wrong shift = too dark or
   // clipped, so it stays configurable rather than hard-coded to one sensor's depth.
-  inline std::unique_ptr<sensor_msgs::msg::Image> fillImageMsgMono8(const std_msgs::msg::Header& hdr, uint32_t width, uint32_t height,
-                                                                    uint32_t src_stride, const uint8_t* src, int fd, int shift)
+  inline std::unique_ptr<sensor_msgs::msg::Image> fillImageMsgMono8(const std_msgs::msg::Header& hdr, uint32_t width, uint32_t height, uint32_t src_stride,
+                                                                    const uint8_t* src, int fd, int shift)
   {
     auto msg = std::make_unique<sensor_msgs::msg::Image>();
     msg->header = hdr;
     msg->width = width;
     msg->height = height;
-    msg->step = width;  // mono8: 1 byte/pixel, tightly packed
+    msg->step = width; // mono8: 1 byte/pixel, tightly packed
     msg->encoding = "mono8";
     msg->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 
@@ -93,4 +93,4 @@ namespace libcamera_ros_driver::detail
     return msg;
   }
 
-}  // namespace libcamera_ros_driver::detail
+} // namespace libcamera_ros_driver::detail

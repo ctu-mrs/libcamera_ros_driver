@@ -31,22 +31,22 @@ namespace
   constexpr uint32_t kW = 64;
   constexpr uint32_t kH = 48;
   const std::string kEncoding = "mono8";
-}  // namespace
+} // namespace
 
 // Pure logic check for the MONO16 -> MONO8 narrowing (no ROS / camera needed). Verifies the
 // shift, tight output packing, and that input row stride padding is skipped correctly.
 TEST(Mono8Narrowing, ShiftsAndPacks)
 {
   constexpr uint32_t w = 4, h = 3;
-  constexpr uint32_t stride = 16;  // bytes per input row > w*2, i.e. 8 px slots, last 4 are padding
+  constexpr uint32_t stride = 16; // bytes per input row > w*2, i.e. 8 px slots, last 4 are padding
   constexpr int shift = 2;
 
-  std::vector<uint8_t> raw(static_cast<size_t>(stride) * h, 0xEE);  // padding poison
+  std::vector<uint8_t> raw(static_cast<size_t>(stride) * h, 0xEE); // padding poison
   for (uint32_t y = 0; y < h; ++y)
   {
     uint16_t* row = reinterpret_cast<uint16_t*>(raw.data() + static_cast<size_t>(y) * stride);
     for (uint32_t x = 0; x < w; ++x)
-      row[x] = static_cast<uint16_t>((y * w + x) << shift);  // so >>shift recovers the index
+      row[x] = static_cast<uint16_t>((y * w + x) << shift); // so >>shift recovers the index
   }
 
   std_msgs::msg::Header hdr;
@@ -65,12 +65,12 @@ TEST(Mono8Narrowing, ShiftsAndPacks)
 TEST(Mono8Narrowing, Shift8TakesTopByteMsbAligned)
 {
   constexpr uint32_t w = 8, h = 2;
-  constexpr uint32_t stride = w * 2;  // tight, 2 bytes/px
+  constexpr uint32_t stride = w * 2; // tight, 2 bytes/px
   std::vector<uint8_t> raw(static_cast<size_t>(stride) * h);
   for (uint32_t i = 0; i < w * h; ++i)
   {
-    const uint16_t v10 = static_cast<uint16_t>((i * 67) & 0x3FF);            // a 10-bit value
-    reinterpret_cast<uint16_t*>(raw.data())[i] = static_cast<uint16_t>(v10 << 6);  // MSB-aligned
+    const uint16_t v10 = static_cast<uint16_t>((i * 67) & 0x3FF);                 // a 10-bit value
+    reinterpret_cast<uint16_t*>(raw.data())[i] = static_cast<uint16_t>(v10 << 6); // MSB-aligned
   }
 
   std_msgs::msg::Header hdr;
@@ -80,7 +80,7 @@ TEST(Mono8Narrowing, Shift8TakesTopByteMsbAligned)
   for (uint32_t i = 0; i < w * h; ++i)
   {
     const uint16_t v10 = static_cast<uint16_t>((i * 67) & 0x3FF);
-    const uint8_t expected = static_cast<uint8_t>((v10 << 6) >> 8);  // top 8 bits = v10 >> 2
+    const uint8_t expected = static_cast<uint8_t>((v10 << 6) >> 8); // top 8 bits = v10 >> 2
     EXPECT_EQ(msg->data[i], expected) << "pixel " << i << " (wrong shift -> black image)";
   }
 }
@@ -104,10 +104,8 @@ TEST_F(FrameRoundTrip, PublishesImageMatchingSource)
 
   sensor_msgs::msg::Image::ConstSharedPtr got_img;
   sensor_msgs::msg::CameraInfo::ConstSharedPtr got_info;
-  auto sub = it.subscribeCamera(
-      "image_raw", 1,
-      [&](const sensor_msgs::msg::Image::ConstSharedPtr& img, const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
-      {
+  auto sub =
+      it.subscribeCamera("image_raw", 1, [&](const sensor_msgs::msg::Image::ConstSharedPtr& img, const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info) {
         got_img = img;
         got_info = info;
       });
@@ -149,7 +147,7 @@ TEST_F(FrameRoundTrip, PublishesImageMatchingSource)
   ASSERT_TRUE(got_img) << "no image received within 5 s (DDS discovery / delivery failed)";
   ASSERT_TRUE(got_info);
 
-  EXPECT_GT(pub.getNumSubscribers(), 0u);  // the no-subscriber gate would (correctly) not fire here
+  EXPECT_GT(pub.getNumSubscribers(), 0u); // the no-subscriber gate would (correctly) not fire here
   EXPECT_EQ(got_img->width, kW);
   EXPECT_EQ(got_img->height, kH);
   EXPECT_EQ(got_img->step, kW);

@@ -3,8 +3,7 @@
 
 namespace libcamera
 {
-class ControlId;
+  class ControlId;
 }
 
-std::size_t
-get_extent(const libcamera::ControlId *id);
+std::size_t get_extent(const libcamera::ControlId* id);

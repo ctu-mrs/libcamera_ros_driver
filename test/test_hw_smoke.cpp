@@ -37,7 +37,7 @@ namespace
     const char* v = std::getenv(key);
     return (v && *v) ? v : fallback;
   }
-}  // namespace
+} // namespace
 
 TEST(HwSmoke, FramesArriveAtExpectedRate)
 {
@@ -55,14 +55,12 @@ TEST(HwSmoke, FramesArriveAtExpectedRate)
 
   size_t count = 0;
   rclcpp::Time first, last;
-  auto sub = it.subscribe(topic, 50,
-                          [&](const sensor_msgs::msg::Image::ConstSharedPtr& img)
-                          {
-                            if (count == 0)
-                              first = img->header.stamp;
-                            last = img->header.stamp;
-                            ++count;
-                          });
+  auto sub = it.subscribe(topic, 50, [&](const sensor_msgs::msg::Image::ConstSharedPtr& img) {
+    if (count == 0)
+      first = img->header.stamp;
+    last = img->header.stamp;
+    ++count;
+  });
 
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(duration_s);
   while (std::chrono::steady_clock::now() < deadline)
@@ -73,7 +71,7 @@ TEST(HwSmoke, FramesArriveAtExpectedRate)
   // measure rate from sensor stamps when we have >=2 frames, else fall back to wall time
   double elapsed = duration_s;
   if (count >= 2 && last > first)
-    elapsed = (last - first).seconds() * count / (count - 1);  // span extrapolated to all frames
+    elapsed = (last - first).seconds() * count / (count - 1); // span extrapolated to all frames
   const double fps = count / elapsed;
 
   RecordProperty("frames", std::to_string(count));

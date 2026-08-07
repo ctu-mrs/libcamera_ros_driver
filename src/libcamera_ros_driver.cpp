@@ -107,12 +107,12 @@ namespace libcamera_ros_driver
     uint32_t img_width_ = 0;
     uint32_t img_height_ = 0;
     uint32_t img_step_ = 0;
-    uint32_t src_stride_ = 0;  // input row stride in bytes (for mono16->mono8 narrowing)
+    uint32_t src_stride_ = 0; // input row stride in bytes (for mono16->mono8 narrowing)
 
     // opt-in: publish MONO8 by narrowing a MONO16 frame. Halves the serialized payload for
     // consumers (e.g. VIO) that only use 8-bit greyscale. Default off keeps the raw R16 output.
     bool mono8_ = false;
-    int mono8_shift_ = 8;  // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
+    int mono8_shift_ = 8; // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
 
     // dmabuf cache invalidate/flush around the CPU read of each frame. Necessary for correct
     // reads of NON-coherent capture buffers; pure overhead (cache ops over the whole frame) if
@@ -129,7 +129,7 @@ namespace libcamera_ros_driver
     {
       void* data;
       size_t size;
-      int fd;  // dmabuf fd, for cache-sync around CPU reads
+      int fd; // dmabuf fd, for cache-sync around CPU reads
     };
     std::unordered_map<const libcamera::FrameBuffer*, buffer_info_t> buffer_info_;
 
@@ -152,10 +152,10 @@ namespace libcamera_ros_driver
     std::condition_variable publish_cv_;
     struct PendingFrame
     {
-      libcamera::Request* request = nullptr;  // re-queued by the worker once the buffer is copied
+      libcamera::Request* request = nullptr; // re-queued by the worker once the buffer is copied
       const uint8_t* data = nullptr;
       size_t size = 0;
-      int fd = -1;  // dmabuf fd for cache-sync, or -1 to skip
+      int fd = -1; // dmabuf fd for cache-sync, or -1 to skip
       std_msgs::msg::Header hdr;
     };
     PendingFrame pending_;
@@ -226,7 +226,7 @@ namespace libcamera_ros_driver
     param_loader.loadParam("use_ros_time", _use_ros_time_);
     param_loader.loadParam("publish_mono8", mono8_, false);
     param_loader.loadParam("mono8_shift", mono8_shift_, 8);
-    mono8_shift_ = std::clamp(mono8_shift_, 0, 15);  // a uint16 shift outside [0,15] is UB
+    mono8_shift_ = std::clamp(mono8_shift_, 0, 15); // a uint16 shift outside [0,15] is UB
     param_loader.loadParam("dmabuf_sync", dmabuf_sync_, true);
 
     if (!param_loader.loadedSuccessfully())
@@ -519,7 +519,7 @@ namespace libcamera_ros_driver
     if (mono8_ && encoding_ == "mono16")
     {
       encoding_ = "mono8";
-      img_step_ = img_width_;  // 1 byte/pixel, tightly packed
+      img_step_ = img_width_; // 1 byte/pixel, tightly packed
       RCLCPP_INFO_STREAM(node_->get_logger(), "publish_mono8: narrowing MONO16 -> MONO8 (shift " << mono8_shift_ << ")");
     } else if (mono8_)
     {
@@ -644,7 +644,7 @@ namespace libcamera_ros_driver
 
   LibcameraRosDriver::~LibcameraRosDriver()
   {
-    camera_->requestCompleted.disconnect();  // no more frames handed off after this
+    camera_->requestCompleted.disconnect(); // no more frames handed off after this
 
     // Stop the worker BEFORE the camera: the worker calls queueRequest, so it must be done
     // before we stop the camera. Any frame still pending is dropped; camera stop reclaims it.
@@ -808,7 +808,7 @@ namespace libcamera_ros_driver
           {
             std::scoped_lock pub_lock(publish_mutex_);
             if (pending_.request)
-              dropped = pending_.request;  // worker hasn't taken the previous frame -> we drop it
+              dropped = pending_.request; // worker hasn't taken the previous frame -> we drop it
             pending_.request = request;
             pending_.data = static_cast<const uint8_t*>(binfo.data);
             pending_.size = binfo.size;
@@ -826,8 +826,7 @@ namespace libcamera_ros_driver
       {
         // Usually a PiSP frontend timeout (CSI/ISP bandwidth) or shutdown. We still re-queue
         // below so the camera can recover if it was transient.
-        RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
-                                    "Request cancelled (camera may have stalled): " << request->toString());
+        RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "Request cancelled (camera may have stalled): " << request->toString());
       }
     }
     catch (const std::exception& e)
@@ -870,10 +869,10 @@ namespace libcamera_ros_driver
         publish_cv_.wait(lock, [this] { return pending_.request || publish_stop_; });
 
         if (publish_stop_)
-          return;  // shutting down: any pending frame is dropped; camera stop reclaims its buffer
+          return; // shutting down: any pending frame is dropped; camera stop reclaims its buffer
 
         f = pending_;
-        pending_ = PendingFrame();  // reset slot (parens: Header's default ctor is explicit)
+        pending_ = PendingFrame(); // reset slot (parens: Header's default ctor is explicit)
       }
 
       // the expensive copy + narrow, now off the camera thread
@@ -897,7 +896,7 @@ namespace libcamera_ros_driver
       }
 
       if (!img)
-        continue;  // build failed; request already re-queued above
+        continue; // build failed; request already re-queued above
 
       auto info = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
       info->header = f.hdr;

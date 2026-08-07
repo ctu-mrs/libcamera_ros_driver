@@ -22,7 +22,7 @@ import message_filters
 
 class CheckStereoSync(Node):
     def __init__(self, left_topic, right_topic, slop):
-        super().__init__('check_stereo_sync')
+        super().__init__("check_stereo_sync")
         left = message_filters.Subscriber(self, Image, left_topic)
         right = message_filters.Subscriber(self, Image, right_topic)
         # large slop so pairs form even when NOT synced -- we want to SEE the offset
@@ -36,14 +36,14 @@ class CheckStereoSync(Node):
 
     def cb(self, lmsg, rmsg):
         dt = self._secs(lmsg.header.stamp) - self._secs(rmsg.header.stamp)
-        self.get_logger().info(f'dt = {dt*1e3:+.3f} ms')
+        self.get_logger().info(f"dt = {dt*1e3:+.3f} ms")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--left', required=True, help='left/first image topic')
-    parser.add_argument('--right', required=True, help='right/second image topic')
-    parser.add_argument('--slop', type=float, default=0.05, help='max pairing time difference [s] (default 0.05)')
+    parser.add_argument("--left", required=True, help="left/first image topic")
+    parser.add_argument("--right", required=True, help="right/second image topic")
+    parser.add_argument("--slop", type=float, default=0.05, help="max pairing time difference [s] (default 0.05)")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
@@ -58,5 +58,5 @@ def main():
             rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

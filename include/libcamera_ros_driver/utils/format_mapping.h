@@ -5,7 +5,7 @@
 
 namespace libcamera
 {
-class PixelFormat;
+  class PixelFormat;
 }
 
 enum class FormatType
@@ -15,11 +15,8 @@ enum class FormatType
   COMPRESSED,
 };
 
-std::string
-get_ros_encoding(const libcamera::PixelFormat &pixelformat);
+std::string get_ros_encoding(const libcamera::PixelFormat& pixelformat);
 
-FormatType
-format_type(const libcamera::PixelFormat &pixelformat);
+FormatType format_type(const libcamera::PixelFormat& pixelformat);
 
-libcamera::StreamFormats
-get_common_stream_formats(const libcamera::StreamFormats &formats);
+libcamera::StreamFormats get_common_stream_formats(const libcamera::StreamFormats& formats);
