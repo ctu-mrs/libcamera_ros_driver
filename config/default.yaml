@@ -51,7 +51,7 @@ libcamera_ros_driver:
   ## |                     optional parameters                    #
   ## --------------------------------------------------------------
 
-  # documentation: https://libcamera.org/api-html/namespacelibcamera_1_1controls.html
+  # documentation: https://docs.libcamera.org/master/public-api/namespacelibcamera_1_1controls.html
   control:
     fps: 20 # [Hz] Note: fps is set as 1000000/frame_duration_limits
     # exposure_time: 20 # Exposure time (shutter speed) for the frame applied in the sensor device. This value is specified in micro-seconds.
