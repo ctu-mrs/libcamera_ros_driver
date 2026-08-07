@@ -1,85 +1,72 @@
 #include <libcamera_ros_driver/utils/control_mapping.h>
-#include <unordered_map>
-#include <string>
-#include <stdexcept>
+
+#include <array>
+#include <format>
 #include <rclcpp/rclcpp.hpp>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
-libcamera::controls::AeExposureModeEnum get_ae_exposure_mode(const std::string& mode)
+using namespace std::string_view_literals; // Enables the "sv" suffix for std::string_view
+
+template <typename Entries>
+auto lookupEnum(std::string_view control_value, const Entries& mapping, std::string_view parameter)
 {
-  static const std::unordered_map<std::string, libcamera::controls::AeExposureModeEnum> mode_map = {
-      {"normal", (libcamera::controls::AeExposureModeEnum)0},
-      {"short", (libcamera::controls::AeExposureModeEnum)1},
-      {"long", (libcamera::controls::AeExposureModeEnum)2},
-      {"custom", (libcamera::controls::AeExposureModeEnum)3},
-  };
+  for (const auto& [key, enum_val] : mapping)
+  {
+    if (key == control_value)
+      return enum_val;
+  }
 
-  try
-  {
-    return mode_map.at(mode);
-  }
-  catch (const std::out_of_range&)
-  {
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid ae exposure mode: \"" << mode << "\"");
-    throw std::runtime_error("invalid ae exposure mode: \"" + mode + "\"");
-  }
+  auto msg = std::format("Cannot map value '{}' to enum for parameter '{}'", control_value, parameter);
+  RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), msg);
+  throw std::runtime_error(msg);
 }
 
-libcamera::controls::AeMeteringModeEnum get_ae_metering_mode(const std::string& mode)
+libcamera::controls::AeExposureModeEnum get_ae_exposure_mode(const std::string_view control_value)
 {
-  static const std::unordered_map<std::string, libcamera::controls::AeMeteringModeEnum> mode_map = {
-      {"centre-weighted", (libcamera::controls::AeMeteringModeEnum)0},
-      {"spot", (libcamera::controls::AeMeteringModeEnum)1},
-      {"matrix", (libcamera::controls::AeMeteringModeEnum)2},
-      {"custom", (libcamera::controls::AeMeteringModeEnum)3},
+  constexpr std::array map = {
+      std::pair{"normal"sv, libcamera::controls::ExposureNormal},
+      std::pair{"short"sv, libcamera::controls::ExposureShort},
+      std::pair{"long"sv, libcamera::controls::ExposureLong},
+      std::pair{"custom"sv, libcamera::controls::ExposureCustom},
   };
 
-  try
-  {
-    return mode_map.at(mode);
-  }
-  catch (const std::out_of_range&)
-  {
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid ae metering mode: \"" << mode << "\"");
-    throw std::runtime_error("invalid ae metering mode: \"" + mode + "\"");
-  }
+  return lookupEnum(control_value, map, "AeExposureMode");
 }
 
-libcamera::controls::AeConstraintModeEnum get_ae_constraint_mode(const std::string& mode)
+libcamera::controls::AeMeteringModeEnum get_ae_metering_mode(const std::string_view control_value)
 {
-  static const std::unordered_map<std::string, libcamera::controls::AeConstraintModeEnum> mode_map = {
-      {"normal", (libcamera::controls::AeConstraintModeEnum)0},
-      {"highlight", (libcamera::controls::AeConstraintModeEnum)1},
-      {"shadows", (libcamera::controls::AeConstraintModeEnum)2},
-      {"custom", (libcamera::controls::AeConstraintModeEnum)3},
+  constexpr std::array map = {
+      std::pair{"centre-weighted"sv, libcamera::controls::MeteringCentreWeighted},
+      std::pair{"spot"sv, libcamera::controls::MeteringSpot},
+      std::pair{"matrix"sv, libcamera::controls::MeteringMatrix},
+      std::pair{"custom"sv, libcamera::controls::MeteringCustom},
   };
 
-  try
-  {
-    return mode_map.at(mode);
-  }
-  catch (const std::out_of_range&)
-  {
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid ae constraint mode: \"" << mode << "\"");
-    throw std::runtime_error("invalid ae constraint mode: \"" + mode + "\"");
-  }
+  return lookupEnum(control_value, map, "AeMeteringMode");
 }
 
-libcamera::controls::AwbModeEnum get_awb_mode(const std::string& mode)
+libcamera::controls::AeConstraintModeEnum get_ae_constraint_mode(const std::string_view control_value)
 {
-  static const std::unordered_map<std::string, libcamera::controls::AwbModeEnum> mode_map = {
-      {"auto", (libcamera::controls::AwbModeEnum)0},     {"incandescent", (libcamera::controls::AwbModeEnum)1},
-      {"tungsten", (libcamera::controls::AwbModeEnum)2}, {"fluorescent", (libcamera::controls::AwbModeEnum)3},
-      {"indoor", (libcamera::controls::AwbModeEnum)4},   {"daylight", (libcamera::controls::AwbModeEnum)5},
-      {"cloudy", (libcamera::controls::AwbModeEnum)6},   {"custom", (libcamera::controls::AwbModeEnum)7},
+  constexpr std::array map = {
+      std::pair{"normal"sv, libcamera::controls::ConstraintNormal},
+      std::pair{"highlight"sv, libcamera::controls::ConstraintHighlight},
+      std::pair{"shadows"sv, libcamera::controls::ConstraintShadows},
+      std::pair{"custom"sv, libcamera::controls::ConstraintCustom},
   };
 
-  try
-  {
-    return mode_map.at(mode);
-  }
-  catch (const std::out_of_range&)
-  {
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("control_mapping"), "invalid awb mode: \"" << mode << "\"");
-    throw std::runtime_error("invalid awb mode: \"" + mode + "\"");
-  }
+  return lookupEnum(control_value, map, "AeConstraintMode");
+}
+
+libcamera::controls::AwbModeEnum get_awb_mode(const std::string_view control_value)
+{
+  constexpr std::array map = {
+      std::pair{"auto"sv, libcamera::controls::AwbAuto},         std::pair{"incandescent"sv, libcamera::controls::AwbIncandescent},
+      std::pair{"tungsten"sv, libcamera::controls::AwbTungsten}, std::pair{"fluorescent"sv, libcamera::controls::AwbFluorescent},
+      std::pair{"indoor"sv, libcamera::controls::AwbIndoor},     std::pair{"daylight"sv, libcamera::controls::AwbDaylight},
+      std::pair{"cloudy"sv, libcamera::controls::AwbCloudy},     std::pair{"custom"sv, libcamera::controls::AwbCustom},
+  };
+
+  return lookupEnum(control_value, map, "AwbMode");
 }
