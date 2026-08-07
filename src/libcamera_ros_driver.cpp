@@ -471,19 +471,54 @@ namespace libcamera_ros_driver
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    loadAndUpdate(param_loader, "control/exposure_time", 20, "ExposureTime");
+
+    loadAndUpdate(param_loader, "control/ae_constraint_mode", std::string("normal"), "AeConstraintMode", get_ae_constraint_mode);
     loadAndUpdate(param_loader, "control/ae_enable", std::string("true"), "AeEnable");
-    loadAndUpdate(param_loader, "control/saturation", 1.0f, "Saturation");
-    loadAndUpdate(param_loader, "control/contrast", 1.0f, "Contrast");
-    loadAndUpdate(param_loader, "control/exposure_value", 0.0f, "ExposureValue");
-    loadAndUpdate(param_loader, "control/brightness", 0.0f, "Brightness");
-    loadAndUpdate(param_loader, "control/sharpness", 1.0f, "Sharpness");
-    loadAndUpdate(param_loader, "control/analogue_gain", 1.0f, "AnalogueGain");
-    loadAndUpdate(param_loader, "control/awb_mode", std::string("auto"), "AwbMode", get_awb_mode);
-    loadAndUpdate(param_loader, "control/ae_metering_mode", std::string("centre-weighted"), "AeMeteringMode", get_ae_metering_mode);
     loadAndUpdate(param_loader, "control/ae_exposure_mode", std::string("normal"), "AeExposureMode", get_ae_exposure_mode);
+    // AeFlickerDetected
+    // AeFlickerMode
+    // AeFlickerPeriod
+    loadAndUpdate(param_loader, "control/ae_metering_mode", std::string("centre-weighted"), "AeMeteringMode", get_ae_metering_mode);
+    // AeState
+    // AfMode
+    // AfPause
+    // AfPauseState
+    // AfRange
+    // AfSpeed
+    // AfState
+    // AfTrigger
+    // AfWindows
+    loadAndUpdate(param_loader, "control/analogue_gain", 1.0f, "AnalogueGain");
+    // AnalogueGainMode
     loadAndUpdate(param_loader, "control/awb_enable", std::string("true"), "AwbEnable");
-    loadAndUpdate(param_loader, "control/ae_constraint_mode", std::string("true"), "AeConstraintMode", get_ae_constraint_mode);
+    // AwbLocked
+    loadAndUpdate(param_loader, "control/awb_mode", std::string("auto"), "AwbMode", get_awb_mode);
+    loadAndUpdate(param_loader, "control/brightness", 0.0f, "Brightness");
+    // ColourCorrectionMatrix
+    // ColourGains
+    // ColourTemperature
+    loadAndUpdate(param_loader, "control/contrast", 1.0f, "Contrast");
+    // DigitalGain
+    loadAndUpdate(param_loader, "control/exposure_time", 20, "ExposureTime");
+    // ExposureTimeMode
+    // ExposureValue
+    // FocusFoM
+    // FrameDuration
+    // FrameWallClock
+    // Gamma
+    // HdrChannel
+    // HdrMode
+    // Hue
+    // LensPosition
+    // Lux
+    loadAndUpdate(param_loader, "control/saturation", 1.0f, "Saturation");
+    // SensorBlackLevels
+    // SensorTemperature
+    // SensorTimestamp
+    loadAndUpdate(param_loader, "control/sharpness", 1.0f, "Sharpness");
+    // WdrMode
+
+    loadAndUpdate(param_loader, "control/exposure_value", 0.0f, "ExposureValue");
 
     // scaler_crop is optional: empty default means "no crop", so a missing param is not an error
     std::vector<int64_t> scaler_crop_bounds;
