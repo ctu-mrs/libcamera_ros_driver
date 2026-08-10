@@ -473,7 +473,7 @@ namespace libcamera_ros_driver
 
 
     loadAndUpdate(param_loader, "control/ae_constraint_mode", std::string("normal"), "AeConstraintMode", get_ae_constraint_mode);
-    loadAndUpdate(param_loader, "control/ae_enable", std::string("true"), "AeEnable");
+    loadAndUpdate(param_loader, "control/ae_enable", true, "AeEnable");
     loadAndUpdate(param_loader, "control/ae_exposure_mode", std::string("normal"), "AeExposureMode", get_ae_exposure_mode);
     // AeFlickerDetected
     // AeFlickerMode
@@ -490,7 +490,7 @@ namespace libcamera_ros_driver
     // AfWindows
     loadAndUpdate(param_loader, "control/analogue_gain", 1.0f, "AnalogueGain");
     // AnalogueGainMode
-    loadAndUpdate(param_loader, "control/awb_enable", std::string("true"), "AwbEnable");
+    loadAndUpdate(param_loader, "control/awb_enable", true, "AwbEnable");
     // AwbLocked
     loadAndUpdate(param_loader, "control/awb_mode", std::string("auto"), "AwbMode", get_awb_mode);
     loadAndUpdate(param_loader, "control/brightness", 0.0f, "Brightness");
