@@ -89,7 +89,6 @@ namespace libcamera_ros_driver
 
   private:
     rclcpp::Node::SharedPtr node_;
-    void initialize();
 
     std::shared_ptr<libcamera::CameraManager> camera_manager_;
     std::shared_ptr<libcamera::Camera> camera_;
@@ -178,15 +177,6 @@ namespace libcamera_ros_driver
   /* LibcameraRosDriver() //{ */
 
   LibcameraRosDriver::LibcameraRosDriver(rclcpp::NodeOptions options) : mrs_lib::Node("LibcameraRosDriver", options)
-  {
-    initialize();
-  }
-
-  //}
-
-  /* initialize() //{ */
-
-  void LibcameraRosDriver::initialize()
   {
 
     node_ = this_node_ptr();
