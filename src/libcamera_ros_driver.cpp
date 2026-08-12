@@ -106,12 +106,12 @@ namespace libcamera_ros_driver
     uint32_t img_width_ = 0;
     uint32_t img_height_ = 0;
     uint32_t img_step_ = 0;
-    uint32_t src_stride_ = 0;  // input row stride in bytes (for mono16->mono8 narrowing)
+    uint32_t src_stride_ = 0; // input row stride in bytes (for mono16->mono8 narrowing)
 
     // opt-in: publish MONO8 by narrowing a MONO16 frame. Halves the serialized payload for
     // consumers (e.g. VIO) that only use 8-bit greyscale. Default off keeps the raw R16 output.
     bool mono8_ = false;
-    int mono8_shift_ = 8;  // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
+    int mono8_shift_ = 8; // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
 
     // dmabuf cache invalidate/flush around the CPU read of each frame. Necessary for correct
     // reads of NON-coherent capture buffers; pure overhead (cache ops over the whole frame) if
@@ -128,7 +128,7 @@ namespace libcamera_ros_driver
     {
       void* data;
       size_t size;
-      int fd;  // dmabuf fd, for cache-sync around CPU reads
+      int fd; // dmabuf fd, for cache-sync around CPU reads
     };
     std::unordered_map<const libcamera::FrameBuffer*, buffer_info_t> buffer_info_;
 
@@ -151,10 +151,10 @@ namespace libcamera_ros_driver
     std::condition_variable publish_cv_;
     struct PendingFrame
     {
-      libcamera::Request* request = nullptr;  // re-queued by the worker once the buffer is copied
+      libcamera::Request* request = nullptr; // re-queued by the worker once the buffer is copied
       const uint8_t* data = nullptr;
       size_t size = 0;
-      int fd = -1;  // dmabuf fd for cache-sync, or -1 to skip
+      int fd = -1; // dmabuf fd for cache-sync, or -1 to skip
       std_msgs::msg::Header hdr;
     };
     PendingFrame pending_;
@@ -168,6 +168,38 @@ namespace libcamera_ros_driver
 
     void declareControlParameters();
     void requestComplete(libcamera::Request* request);
+
+    /**
+     * @brief Read the parameter from the ParamLoader (which reads from the config file), converts them to libcamera types and loads them into libcamera
+     * parameter list. If you are loading values that are represented as strings or numbers in libcamera use the overload of this function that doesn't have a
+     * Deserialized parameter (function that converts string to appropriate enum)
+
+     *
+     * @param loader Instance of mrs_lib::ParamLoader which loaded the config file
+     * @param param Parameter to load from the ParamLoader. This is a path in the config file (for example "control/exposure")
+     * @param default_value Default value for the parameter if not specified in the config file. This should be in the serialized type (in the type that is
+     * written in the config file: string, int or float)
+     * @param control_name Name of the libcamera parameter (called ControlValue in libcamera)
+     * @param converter Function that deserializes the parameter value from config file into enum type expected by libcamera. Needed only for Enum-backed types.
+     * For strings and numbers there is an overload of this function without this parameter
+     */
+    template <typename ParamType, typename StringToEnumConverter>
+    void loadAndUpdate(mrs_lib::ParamLoader& loader, const std::string& param, ParamType default_value, const std::string& control_name,
+                       StringToEnumConverter converter);
+
+    /**
+     * @brief Read the parameter from the ParamLoader (which reads from the config file), converts them to libcamera types and loads them into libcamera
+     * parameter list. If you are loading values that are represented as enums in libcamera use the overload of this function that has a StringToEnumConverter
+     * parameter (function that converts string to appropriate enum)
+     *
+     * @param loader Instance of mrs_lib::ParamLoader which loaded the config file
+     * @param param Parameter to load from the ParamLoader. This is a path in the config file (for example "control/exposure")
+     * @param default_value Default value for the parameter if not specified in the config file. This should be in the serialized type (in the type that is
+     * written in the config file: string, int or float)
+     * @param control_name Name of the libcamera parameter (called ControlValue in libcamera)
+     */
+    template <typename ParamType>
+    void loadAndUpdate(mrs_lib::ParamLoader& loader, const std::string& param_name, ParamType default_value, const std::string& control_name);
 
     bool updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id);
   };
@@ -216,7 +248,7 @@ namespace libcamera_ros_driver
     param_loader.loadParam("use_ros_time", _use_ros_time_);
     param_loader.loadParam("publish_mono8", mono8_, false);
     param_loader.loadParam("mono8_shift", mono8_shift_, 8);
-    mono8_shift_ = std::clamp(mono8_shift_, 0, 15);  // a uint16 shift outside [0,15] is UB
+    mono8_shift_ = std::clamp(mono8_shift_, 0, 15); // a uint16 shift outside [0,15] is UB
     param_loader.loadParam("dmabuf_sync", dmabuf_sync_, true);
 
     if (!param_loader.loadedSuccessfully())
@@ -420,82 +452,69 @@ namespace libcamera_ros_driver
     RCLCPP_INFO_STREAM(node_->get_logger(), "Camera \"" << camera_->id() << "\" configured with " << scfg.toString() << " stream");
     declareControlParameters();
 
-    int param_int;
-    float param_float;
-    std::string param_string;
-    // bool param_bool; // Removed
-    std::vector<int64_t> param_vector_int;
-
-    param_loader.loadParam("control/exposure_time", param_int, 20);
-    if (parameter_ids_.count("ExposureTime"))
-      updateControlParameter(pv_to_cv(param_int, parameter_ids_["ExposureTime"]->type()), parameter_ids_["ExposureTime"]);
-
-    param_loader.loadParam("control/fps", param_float, 20.0f);
+    float fps;
+    param_loader.loadParam("control/fps", fps, 20.0f);
     if (parameter_ids_.count("FrameDurationLimits"))
     {
-      int64_t frame_time = 1000000 / param_float;
+      int64_t frame_time = 1000000 / fps;
       updateControlParameter(pv_to_cv(std::vector<int64_t>{frame_time, frame_time}, parameter_ids_["FrameDurationLimits"]->type()),
                              parameter_ids_["FrameDurationLimits"]);
     }
 
-    param_loader.loadParam("control/ae_constraint_mode", param_string, std::string("normal"));
-    if (parameter_ids_.count("AeConstraintMode"))
-      updateControlParameter(pv_to_cv(get_ae_constraint_mode(param_string), parameter_ids_["AeConstraintMode"]->type()), parameter_ids_["AeConstraintMode"]);
 
-    param_loader.loadParam("control/brightness", param_float, 0.0f);
-    if (parameter_ids_.count("Brightness"))
-      updateControlParameter(pv_to_cv(param_float, parameter_ids_["Brightness"]->type()), parameter_ids_["Brightness"]);
+    loadAndUpdate(param_loader, "control/ae_constraint_mode", std::string("normal"), "AeConstraintMode", get_ae_constraint_mode);
+    loadAndUpdate(param_loader, "control/ae_enable", true, "AeEnable");
+    loadAndUpdate(param_loader, "control/ae_exposure_mode", std::string("normal"), "AeExposureMode", get_ae_exposure_mode);
+    // AeFlickerDetected
+    // AeFlickerMode
+    // AeFlickerPeriod
+    loadAndUpdate(param_loader, "control/ae_metering_mode", std::string("centre-weighted"), "AeMeteringMode", get_ae_metering_mode);
+    // AeState
+    // AfMode
+    // AfPause
+    // AfPauseState
+    // AfRange
+    // AfSpeed
+    // AfState
+    // AfTrigger
+    // AfWindows
+    loadAndUpdate(param_loader, "control/analogue_gain", 1.0f, "AnalogueGain");
+    // AnalogueGainMode
+    loadAndUpdate(param_loader, "control/awb_enable", true, "AwbEnable");
+    // AwbLocked
+    loadAndUpdate(param_loader, "control/awb_mode", std::string("auto"), "AwbMode", get_awb_mode);
+    loadAndUpdate(param_loader, "control/brightness", 0.0f, "Brightness");
+    // ColourCorrectionMatrix
+    // ColourGains
+    // ColourTemperature
+    loadAndUpdate(param_loader, "control/contrast", 1.0f, "Contrast");
+    // DigitalGain
+    loadAndUpdate(param_loader, "control/exposure_time", 20, "ExposureTime");
+    // ExposureTimeMode
+    // ExposureValue
+    // FocusFoM
+    // FrameDuration
+    // FrameWallClock
+    // Gamma
+    // HdrChannel
+    // HdrMode
+    // Hue
+    // LensPosition
+    // Lux
+    loadAndUpdate(param_loader, "control/saturation", 1.0f, "Saturation");
+    // SensorBlackLevels
+    // SensorTemperature
+    // SensorTimestamp
+    loadAndUpdate(param_loader, "control/sharpness", 1.0f, "Sharpness");
+    // WdrMode
 
-    param_loader.loadParam("control/sharpness", param_float, 1.0f);
-    if (parameter_ids_.count("Sharpness"))
-      updateControlParameter(pv_to_cv(param_float, parameter_ids_["Sharpness"]->type()), parameter_ids_["Sharpness"]);
-
-    std::string param_awb_enable_str = "true";
-    param_loader.loadParam("control/awb_enable", param_awb_enable_str, std::string("true"));
-    bool param_awb_enable_bool = (param_awb_enable_str == "true");
-    if (parameter_ids_.count("AwbEnable"))
-      updateControlParameter(pv_to_cv(param_awb_enable_bool, parameter_ids_["AwbEnable"]->type()), parameter_ids_["AwbEnable"]);
-
-    /* updateControlParameter<std::vector<float>>(std::string("control.colour_gains"), parameter_ids_["ColourGains"]); */
-    std::string param_ae_enable_str = "true";
-    param_loader.loadParam("control/ae_enable", param_ae_enable_str, std::string("true"));
-    bool param_ae_enable_bool = (param_ae_enable_str == "true");
-    if (parameter_ids_.count("AeEnable"))
-      updateControlParameter(pv_to_cv(param_ae_enable_bool, parameter_ids_["AeEnable"]->type()), parameter_ids_["AeEnable"]);
-
-    param_loader.loadParam("control/saturation", param_float, 1.0f);
-    if (parameter_ids_.count("Saturation"))
-      updateControlParameter(pv_to_cv(param_float, parameter_ids_["Saturation"]->type()), parameter_ids_["Saturation"]);
-
-    param_loader.loadParam("control/contrast", param_float, 1.0f);
-    if (parameter_ids_.count("Contrast"))
-      updateControlParameter(pv_to_cv(param_float, parameter_ids_["Contrast"]->type()), parameter_ids_["Contrast"]);
-
-    param_loader.loadParam("control/exposure_value", param_float, 0.0f);
-    if (parameter_ids_.count("ExposureValue"))
-      updateControlParameter(pv_to_cv(param_float, parameter_ids_["ExposureValue"]->type()), parameter_ids_["ExposureValue"]);
-
-    param_loader.loadParam("control/analogue_gain", param_float, 1.0f);
-    if (parameter_ids_.count("AnalogueGain"))
-      updateControlParameter(pv_to_cv(param_float, parameter_ids_["AnalogueGain"]->type()), parameter_ids_["AnalogueGain"]);
-
-    param_loader.loadParam("control/awb_mode", param_string, std::string("auto"));
-    if (parameter_ids_.count("AwbMode"))
-      updateControlParameter(pv_to_cv(get_awb_mode(param_string), parameter_ids_["AwbMode"]->type()), parameter_ids_["AwbMode"]);
-
-    param_loader.loadParam("control/ae_metering_mode", param_string, std::string("centre-weighted"));
-    if (parameter_ids_.count("AeMeteringMode"))
-      updateControlParameter(pv_to_cv(get_ae_metering_mode(param_string), parameter_ids_["AeMeteringMode"]->type()), parameter_ids_["AeMeteringMode"]);
+    loadAndUpdate(param_loader, "control/exposure_value", 0.0f, "ExposureValue");
 
     // scaler_crop is optional: empty default means "no crop", so a missing param is not an error
-    param_vector_int.clear();
-    param_loader.loadParam("control/scaler_crop", param_vector_int, std::vector<int64_t>{});
-    if (!param_vector_int.empty() && parameter_ids_.count("ScalerCrop"))
-      updateControlParameter(pv_to_cv(param_vector_int, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
-
-    param_loader.loadParam("control/ae_exposure_mode", param_string, std::string("normal"));
-    if (parameter_ids_.count("AeExposureMode"))
-      updateControlParameter(pv_to_cv(get_ae_exposure_mode(param_string), parameter_ids_["AeExposureMode"]->type()), parameter_ids_["AeExposureMode"]);
+    std::vector<int64_t> scaler_crop_bounds;
+    param_loader.loadParam("control/scaler_crop", scaler_crop_bounds, std::vector<int64_t>{});
+    if (!scaler_crop_bounds.empty() && parameter_ids_.count("ScalerCrop"))
+      updateControlParameter(pv_to_cv(scaler_crop_bounds, parameter_ids_["ScalerCrop"]->type()), parameter_ids_["ScalerCrop"]);
 
     // cache per-frame-constant image properties (format/size are fixed after configure)
     is_raw_ = (format_type(scfg.pixelFormat) == FormatType::RAW);
@@ -509,7 +528,7 @@ namespace libcamera_ros_driver
     if (mono8_ && encoding_ == "mono16")
     {
       encoding_ = "mono8";
-      img_step_ = img_width_;  // 1 byte/pixel, tightly packed
+      img_step_ = img_width_; // 1 byte/pixel, tightly packed
       RCLCPP_INFO_STREAM(node_->get_logger(), "publish_mono8: narrowing MONO16 -> MONO8 (shift " << mono8_shift_ << ")");
     } else if (mono8_)
     {
@@ -634,7 +653,7 @@ namespace libcamera_ros_driver
 
   LibcameraRosDriver::~LibcameraRosDriver()
   {
-    camera_->requestCompleted.disconnect();  // no more frames handed off after this
+    camera_->requestCompleted.disconnect(); // no more frames handed off after this
 
     // Stop the worker BEFORE the camera: the worker calls queueRequest, so it must be done
     // before we stop the camera. Any frame still pending is dropped; camera stop reclaims it.
@@ -707,7 +726,27 @@ namespace libcamera_ros_driver
 
   //}
 
-  /* updateControlParameter() //{ */
+
+  template <typename ParamType, typename StringToEnumConverter>
+  void LibcameraRosDriver::loadAndUpdate(mrs_lib::ParamLoader& loader, const std::string& param_name, ParamType default_value, const std::string& control_name,
+                                         StringToEnumConverter converter)
+  {
+    ParamType value;
+    loader.loadParam(param_name, value, default_value);
+
+    auto it = parameter_ids_.find(control_name);
+    if (it == parameter_ids_.end())
+      return;
+
+    updateControlParameter(pv_to_cv(converter(value), it->second->type()), it->second);
+  }
+
+  template <typename ParamType>
+  void LibcameraRosDriver::loadAndUpdate(mrs_lib::ParamLoader& loader, const std::string& param_name, ParamType default_value, const std::string& control_name)
+  {
+    loadAndUpdate(loader, param_name, std::move(default_value), control_name, [](const auto& v) { return v; });
+  }
+
 
   bool LibcameraRosDriver::updateControlParameter(const libcamera::ControlValue& value, const libcamera::ControlId* id)
   {
@@ -749,7 +788,6 @@ namespace libcamera_ros_driver
     return true;
   }
 
-  //}
 
   /* requestComplete() //{ */
 
@@ -798,7 +836,7 @@ namespace libcamera_ros_driver
           {
             std::scoped_lock pub_lock(publish_mutex_);
             if (pending_.request)
-              dropped = pending_.request;  // worker hasn't taken the previous frame -> we drop it
+              dropped = pending_.request; // worker hasn't taken the previous frame -> we drop it
             pending_.request = request;
             pending_.data = static_cast<const uint8_t*>(binfo.data);
             pending_.size = binfo.size;
@@ -816,8 +854,7 @@ namespace libcamera_ros_driver
       {
         // Usually a PiSP frontend timeout (CSI/ISP bandwidth) or shutdown. We still re-queue
         // below so the camera can recover if it was transient.
-        RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
-                                    "Request cancelled (camera may have stalled): " << request->toString());
+        RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "Request cancelled (camera may have stalled): " << request->toString());
       }
     }
     catch (const std::exception& e)
@@ -860,10 +897,10 @@ namespace libcamera_ros_driver
         publish_cv_.wait(lock, [this] { return pending_.request || publish_stop_; });
 
         if (publish_stop_)
-          return;  // shutting down: any pending frame is dropped; camera stop reclaims its buffer
+          return; // shutting down: any pending frame is dropped; camera stop reclaims its buffer
 
         f = pending_;
-        pending_ = PendingFrame();  // reset slot (parens: Header's default ctor is explicit)
+        pending_ = PendingFrame(); // reset slot (parens: Header's default ctor is explicit)
       }
 
       // the expensive copy + narrow, now off the camera thread
@@ -887,7 +924,7 @@ namespace libcamera_ros_driver
       }
 
       if (!img)
-        continue;  // build failed; request already re-queued above
+        continue; // build failed; request already re-queued above
 
       auto info = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_msg_);
       info->header = f.hdr;

@@ -28,7 +28,7 @@ namespace
   // gate has headroom for bigger sensors / full-res modes.
   constexpr size_t kWidth = 1456;
   constexpr size_t kHeight = 1088;
-  constexpr size_t kFrameBytes = kWidth * kHeight;  // 1 byte/px (MONO8)
+  constexpr size_t kFrameBytes = kWidth * kHeight; // 1 byte/px (MONO8)
 
   // 60 Hz -> 16.667 ms/frame. One copy must be a small fraction of that. 8 ms leaves
   // >20x margin vs a real RPi5 copy (~0.3-0.5 ms) while still failing a build that
@@ -80,10 +80,10 @@ namespace
     for (size_t i = 0; i < n; ++i)
       dst[i] = static_cast<uint8_t>(src[i] >> shift);
     const auto t1 = Clock::now();
-    EXPECT_EQ(dst[n - 1], static_cast<uint8_t>(src[n - 1] >> shift));  // defeat dead-store elision
+    EXPECT_EQ(dst[n - 1], static_cast<uint8_t>(src[n - 1] >> shift)); // defeat dead-store elision
     return std::chrono::duration<double, std::milli>(t1 - t0).count();
   }
-}  // namespace
+} // namespace
 
 class FrameCopyPerf : public ::testing::Test
 {
@@ -109,9 +109,8 @@ TEST_F(FrameCopyPerf, AssignWithin60HzBudget)
 
   const double med = median(samples);
   RecordProperty("median_ms", std::to_string(med));
-  EXPECT_LT(med, kFrameBudgetMs)
-      << "frame copy median " << med << " ms exceeds " << kFrameBudgetMs
-      << " ms budget (60 Hz = 16.67 ms/frame). Likely an unoptimized build.";
+  EXPECT_LT(med, kFrameBudgetMs) << "frame copy median " << med << " ms exceeds " << kFrameBudgetMs
+                                 << " ms budget (60 Hz = 16.67 ms/frame). Likely an unoptimized build.";
 }
 
 // Gate 2: assign() is no slower than resize()+memcpy(). The resize path does a strictly
@@ -137,9 +136,7 @@ TEST_F(FrameCopyPerf, AssignNotSlowerThanResizeMemcpy)
   const double rm = median(r);
   RecordProperty("assign_ms", std::to_string(am));
   RecordProperty("resize_memcpy_ms", std::to_string(rm));
-  EXPECT_LE(am, rm * 1.05)
-      << "assign median " << am << " ms is slower than resize+memcpy " << rm
-      << " ms -- the zero-fill-elimination optimization regressed.";
+  EXPECT_LE(am, rm * 1.05) << "assign median " << am << " ms is slower than resize+memcpy " << rm << " ms -- the zero-fill-elimination optimization regressed.";
 }
 
 // Narrowing perf uses a 16-bit source (2 bytes/px); kFrameBytes is the pixel count.
@@ -148,10 +145,10 @@ class Mono8NarrowPerf : public ::testing::Test
 protected:
   void SetUp() override
   {
-    src_.resize(kFrameBytes);  // kFrameBytes pixels of 16-bit input
+    src_.resize(kFrameBytes); // kFrameBytes pixels of 16-bit input
     dst_.resize(kFrameBytes);
     for (size_t i = 0; i < src_.size(); ++i)
-      src_[i] = static_cast<uint16_t>((i & 0x3FF) << 6);  // MSB-aligned 10-bit, as PiSP delivers
+      src_[i] = static_cast<uint16_t>((i & 0x3FF) << 6); // MSB-aligned 10-bit, as PiSP delivers
   }
   std::vector<uint16_t> src_;
   std::vector<uint8_t> dst_;
@@ -169,7 +166,6 @@ TEST_F(Mono8NarrowPerf, NarrowWithin60HzBudget)
 
   const double med = median(samples);
   RecordProperty("narrow_median_ms", std::to_string(med));
-  EXPECT_LT(med, kFrameBudgetMs)
-      << "mono8 narrow median " << med << " ms exceeds " << kFrameBudgetMs
-      << " ms budget (60 Hz = 16.67 ms/frame). Likely an unoptimized build of the shift loop.";
+  EXPECT_LT(med, kFrameBudgetMs) << "mono8 narrow median " << med << " ms exceeds " << kFrameBudgetMs
+                                 << " ms budget (60 Hz = 16.67 ms/frame). Likely an unoptimized build of the shift loop.";
 }
