@@ -618,7 +618,7 @@ namespace libcamera_ros_driver
     cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(
       node_->get_node_base_interface(), node_->get_node_services_interface(), node_->get_node_logging_interface(), camera_name, calib_url
       #if defined(RCLCPP_VERSION_MAJOR) && RCLCPP_VERSION_MAJOR >= 32
-      ,rclcpp::SystemDefaultsQoS()
+      , rclcpp::SystemDefaultsQoS()
       #endif
     );
 
