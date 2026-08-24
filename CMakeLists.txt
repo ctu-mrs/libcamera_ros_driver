@@ -130,11 +130,20 @@ if(BUILD_TESTING)
   # real image_transport round-trip of the driver's frame-build code with a faked frame
   ament_add_gtest(test_integration test/test_integration.cpp)
   target_include_directories(test_integration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  ament_target_dependencies(test_integration rclcpp image_transport sensor_msgs std_msgs)
+  target_link_libraries(test_integration
+    rclcpp_components::component
+    image_transport::image_transport
+    ${sensor_msgs_TARGETS}
+    ${std_msgs_TARGETS}
+  )
 
   # opt-in hardware smoke test (skips unless LIBCAMERA_ROS_HW_TEST is set)
   ament_add_gtest(test_hw_smoke test/test_hw_smoke.cpp)
-  ament_target_dependencies(test_hw_smoke rclcpp image_transport sensor_msgs)
+  target_link_libraries(test_hw_smoke
+    rclcpp_components::component
+    image_transport::image_transport
+    ${sensor_msgs_TARGETS}
+  )
 endif()
 
 ament_package()
