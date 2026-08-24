@@ -35,6 +35,7 @@
 #include <libcamera_ros_driver/detail/frame_msg.h>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/version.h>
 #include <camera_info_manager/camera_info_manager.hpp>
 #include <image_transport/image_transport.hpp>
 
@@ -614,13 +615,27 @@ namespace libcamera_ros_driver
       requests_.push_back(std::move(request));
     }
 
-    cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_->get_node_base_interface(), node_->get_node_services_interface(),
-                                                                      node_->get_node_logging_interface(), camera_name, calib_url);
+    cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(
+      node_->get_node_base_interface(), node_->get_node_services_interface(), node_->get_node_logging_interface(), camera_name, calib_url
+      #if defined(RCLCPP_VERSION_MAJOR) && RCLCPP_VERSION_MAJOR >= 32
+      ,rclcpp::SystemDefaultsQoS()
+      #endif
+    );
+
     cinfo_msg_ = cinfo_->getCameraInfo();
 
     /* initialize publishers //{ */
 
+    #if defined(RCLCPP_VERSION_MAJOR) && RCLCPP_VERSION_MAJOR >= 32
+    image_transport::ImageTransport it(
+      image_transport::RequiredInterfaces(
+        node_->get_node_base_interface(), node_->get_node_parameters_interface(), node_->get_node_logging_interface(), node_->get_node_timers_interface(), node_->get_node_topics_interface()
+      )
+    );
+    #else
     image_transport::ImageTransport it(node_);
+    #endif
+
     image_pub_ = it.advertiseCamera("~/image_raw", 1);
 
     //}
