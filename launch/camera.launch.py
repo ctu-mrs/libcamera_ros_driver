@@ -104,7 +104,7 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument(
         'camera_name',
         default_value='front',
-        description='Name of the camera (used to select which camera to use if multiple are present)'
+        description='Name of the camera'
     ))
 
     # #} end of camera_name

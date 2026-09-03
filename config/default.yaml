@@ -4,8 +4,21 @@ libcamera_ros_driver:
   ## |                    compulsory parameters                   #
   ## --------------------------------------------------------------
 
-  camera_name: "ov9281" # if the camera_name is not defined, the id is used
-  camera_id: 0
+  # This is the camera index in the list of cameras returned by libcamera.
+  # The order of cameras in the list is not stable, so this should never be used and is here just for backwards compatibility.
+  # Use camera_name instead.
+  camera_id: -1
+
+  # Camera name is the key used to identify the camera based on it's hardware ID when camera_id is not used (camera_id = -1).
+  # To get a list of available cameras, run `libcamera-hello --list-cameras` to get something like this:
+  #   /base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60
+  #   /base/axi/pcie@1000120000/rp1/i2c@88000/ov9281@60
+  # You can use any part of the camera's hardware ID as the camera_name, as long as it is unique among all cameras on the system.
+  #   if you only have one camera, you can put leave this as empty string (""), so it matches the first camera found on the system.
+  #   if you have different camera models, then the model name is a good choice (such as ov9281)
+  #   if you have multiple cameras of the same type, then you can use the address (such as i2c@80000)
+  #   if you want to be really sure to use a specific camera, you can use the full hardware ID (such as /base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60)
+  camera_name: ""
 
   stream_role: "still" # [raw, still, video, viewfinder]
 

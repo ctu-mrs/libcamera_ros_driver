@@ -156,28 +156,6 @@ ros2 launch libcamera_ros_driver stereo.launch.py \
   right_name:=back  right_custom_config:=/abs/path/camera_right.yaml right_calib_url:="file:///abs/path/back_calib.yaml"
 ```
 
-### Selecting which sensor a node uses
-
-By index:
-
-```yaml
-libcamera_ros_driver:
-  camera_name: ""   # empty disables name matching
-  camera_id: 0      # 0 / 1
-```
-
-or by the unique i2c path (robust across reboots; see the `dtoverlay ...,cam0/cam1` setup
-in `/boot/firmware/config.txt`):
-
-```yaml
-libcamera_ros_driver:
-  camera_name: "i2c@80000"   # / "i2c@88000"
-```
-
-Minimal per-camera overrides ship as `config/camera_left.yaml` / `config/camera_right.yaml`.
-
----
-
 ## Configuration
 
 Parameters resolve in this order (first match wins):

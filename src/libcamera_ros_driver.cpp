@@ -268,66 +268,55 @@ namespace libcamera_ros_driver
       exit(1);
     }
 
-    // When camera name is specified, the camera id is automatically extracted.
-    // This only works if the cameras have unique IDs.
-    // When using two identical cameras, define them like this in /boot/firmware/config.txt
-    //
-    // dtoverlay=ov9281
-    // dtoverlay=ov9281,cam0
-    // dtoverlay=ov9281,cam1
-    //
-    // ... this will make them have a unique ID.
-    // Then do `sudo rpicam-hello --list-cameras` and you will get two unique IDs, like:
-    //
-    // /base/axi/pcie@120000/rp1/i2c@80000/ov9281@60
-    // /base/axi/pcie@120000/rp1/i2c@88000/ov9281@60
 
-    if (!camera_name.empty())
+    // Print a list of available cameras and their IDs (addresses)
+    RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
+    for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
     {
+      auto camera = camera_manager_->cameras().at(i);
+      auto msg = std::format("  {}: {}", i, camera->id());
 
-      std::vector<std::string> available_cameras;
+      RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
+    }
 
-      RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
-
+    // If camera_id is set, use that, otherwise try to find it by camera_name
+    if (camera_id == -1)
+    {
       for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
       {
-        available_cameras.push_back(camera_manager_->cameras().at(i)->id());
-      }
-
-      for (size_t i = 0; i < available_cameras.size(); i++)
-      {
-
-        if (available_cameras.at(i).find(camera_name) != std::string::npos)
+        auto camera = camera_manager_->cameras().at(i);
+        if (camera->id().find(camera_name) != std::string::npos)
         {
-          RCLCPP_INFO_STREAM(this_node().get_logger(), "found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
+          auto msg = std::format("Found camera '{}' by name ({})", camera_name, camera->id());
+          RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
           camera_id = i;
           break;
         }
       }
     }
 
-    if (camera_id >= int(camera_manager_->cameras().size()))
+    // If camera_id is still -1, then the camera was not found by name
+    if (camera_id == -1)
     {
-      RCLCPP_INFO_STREAM(this_node().get_logger(), *camera_manager_);
-      RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with id " << camera_name << " does not exist");
+      auto msg = std::format("Camera with name '{}' does not exist!", camera_name);
+      RCLCPP_ERROR_STREAM(this_node().get_logger(), msg);
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    // Check if camera_id is within the range of available cameras
+    if (camera_id < 0 || camera_id >= static_cast<int>(camera_manager_->cameras().size()))
+    {
+      auto msg = std::format("Camera with id (index) {} does not exist!", camera_id);
+      RCLCPP_ERROR_STREAM(this_node().get_logger(), msg);
       rclcpp::shutdown();
       exit(1);
     }
 
     camera_ = camera_manager_->cameras().at(camera_id);
-    RCLCPP_INFO_STREAM(this_node().get_logger(), "Use camera by id: " << camera_id);
-
-    if (!camera_)
-    {
-      RCLCPP_INFO_STREAM(this_node().get_logger(), *camera_manager_);
-      RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with name " << camera_name << " does not exist");
-      rclcpp::shutdown();
-      exit(1);
-    }
-
     if (camera_->acquire())
     {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to acquire camera");
+      RCLCPP_ERROR(node_->get_logger(), "Failed to acquire camera. If you have multiple cameras check if camera_name is unique.");
       rclcpp::shutdown();
       return;
     }
