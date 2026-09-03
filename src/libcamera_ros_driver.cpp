@@ -109,10 +109,8 @@ namespace libcamera_ros_driver
     uint32_t img_step_ = 0;
     uint32_t src_stride_ = 0; // input row stride in bytes (for mono16->mono8 narrowing)
 
-    // opt-in: publish MONO8 by narrowing a MONO16 frame. Halves the serialized payload for
-    // consumers (e.g. VIO) that only use 8-bit greyscale. Default off keeps the raw R16 output.
     bool mono8_ = false;
-    int mono8_shift_ = 8; // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
+    int mono8_shift_ = 8;
 
     // dmabuf cache invalidate/flush around the CPU read of each frame. Necessary for correct
     // reads of NON-coherent capture buffers; pure overhead (cache ops over the whole frame) if
@@ -247,7 +245,7 @@ namespace libcamera_ros_driver
     param_loader.loadParam("use_ros_time", _use_ros_time_);
     param_loader.loadParam("publish_mono8", mono8_, false);
     param_loader.loadParam("mono8_shift", mono8_shift_, 8);
-    mono8_shift_ = std::clamp(mono8_shift_, 0, 15); // a uint16 shift outside [0,15] is UB
+    mono8_shift_ = std::clamp(mono8_shift_, 0, 15);
     param_loader.loadParam("dmabuf_sync", dmabuf_sync_, true);
 
     if (!param_loader.loadedSuccessfully())
@@ -498,11 +496,11 @@ namespace libcamera_ros_driver
     src_stride_ = scfg.stride;
     img_step_ = scfg.stride;
 
-    // mono8 narrowing only applies to a 16-bit mono source; otherwise fall back to passthrough
+    // mono8 narrowing only applies to a 16-bit mono source
     if (mono8_ && encoding_ == "mono16")
     {
       encoding_ = "mono8";
-      img_step_ = img_width_; // 1 byte/pixel, tightly packed
+      img_step_ = img_width_;
       RCLCPP_INFO_STREAM(node_->get_logger(), "publish_mono8: narrowing MONO16 -> MONO8 (shift " << mono8_shift_ << ")");
     } else if (mono8_)
     {
