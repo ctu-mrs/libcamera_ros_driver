@@ -231,7 +231,6 @@ namespace libcamera_ros_driver
     std::string stream_role;
     std::string pixel_format;
     std::string calib_url;
-    int camera_id;
     int resolution_width;
     int resolution_height;
 
@@ -241,7 +240,6 @@ namespace libcamera_ros_driver
     param_loader.setPrefix("libcamera_ros_driver/");
 
     param_loader.loadParam("camera_name", camera_name);
-    param_loader.loadParam("camera_id", camera_id);
     param_loader.loadParam("stream_role", stream_role);
     param_loader.loadParam("pixel_format", pixel_format);
     param_loader.loadParam("resolution/width", resolution_width);
@@ -268,8 +266,7 @@ namespace libcamera_ros_driver
       exit(1);
     }
 
-
-    // Print a list of available cameras and their IDs (addresses)
+    // Print a list of available cameras and their device tree paths (such as /base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60)
     RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
     for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
     {
@@ -279,41 +276,28 @@ namespace libcamera_ros_driver
       RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
     }
 
-    // If camera_id is set, use that, otherwise try to find it by camera_name
-    if (camera_id == -1)
+    int camera_index = -1;
+    for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
     {
-      for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
+      auto camera = camera_manager_->cameras().at(i);
+      if (camera->id().find(camera_name) != std::string::npos)
       {
-        auto camera = camera_manager_->cameras().at(i);
-        if (camera->id().find(camera_name) != std::string::npos)
-        {
-          auto msg = std::format("Found camera '{}' by name ({})", camera_name, camera->id());
-          RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
-          camera_id = i;
-          break;
-        }
+        auto msg = std::format("Found camera '{}'. Device tree path: {}", camera_name, camera->id());
+        RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
+        camera_index = i;
+        break;
       }
     }
 
-    // If camera_id is still -1, then the camera was not found by name
-    if (camera_id == -1)
+    if (camera_index == -1)
     {
-      auto msg = std::format("Camera with name '{}' does not exist!", camera_name);
+      auto msg = std::format("Camera name '{}' does not exist!", camera_name);
       RCLCPP_ERROR_STREAM(this_node().get_logger(), msg);
       rclcpp::shutdown();
       exit(1);
     }
 
-    // Check if camera_id is within the range of available cameras
-    if (camera_id < 0 || camera_id >= static_cast<int>(camera_manager_->cameras().size()))
-    {
-      auto msg = std::format("Camera with id (index) {} does not exist!", camera_id);
-      RCLCPP_ERROR_STREAM(this_node().get_logger(), msg);
-      rclcpp::shutdown();
-      exit(1);
-    }
-
-    camera_ = camera_manager_->cameras().at(camera_id);
+    camera_ = camera_manager_->cameras().at(camera_index);
     if (camera_->acquire())
     {
       RCLCPP_ERROR(node_->get_logger(), "Failed to acquire camera. If you have multiple cameras check if camera_name is unique.");
