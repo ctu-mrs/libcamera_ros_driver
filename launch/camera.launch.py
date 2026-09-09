@@ -97,17 +97,17 @@ def generate_launch_description():
 
     # #} end of environment variables
 
-    # #{ camera_name
+    # #{ suffix
 
-    camera_name = LaunchConfiguration('camera_name')
+    suffix = LaunchConfiguration('suffix')
 
     ld.add_action(DeclareLaunchArgument(
-        'camera_name',
+        'suffix',
         default_value='front',
-        description='Name of the camera'
+        description='Suffix for node, frame and container names, such as rpi_camera_SUFFIX.'
     ))
 
-    # #} end of camera_name
+    # #} end of suffix
 
     # #{ custom_config
 
@@ -172,11 +172,11 @@ def generate_launch_description():
         package=pkg_name,
         plugin='libcamera_ros_driver::LibcameraRosDriver',
         namespace=uav_name,
-        name=['rpi_camera_', camera_name],
+        name=['rpi_camera_', suffix],
 
         parameters=[
             {'use_sim_time': use_sim_time},
-            {'frame_id': [uav_name, "/rpi_camera_", camera_name]},
+            {'frame_id': [uav_name, "/rpi_camera_", suffix]},
             {'calib_url': calib_url},
             {'config': this_pkg_path + '/config/default.yaml'},
             {'custom_config': custom_config},
@@ -207,7 +207,7 @@ def generate_launch_description():
 
     standalone_container = ComposableNodeContainer(
         namespace=uav_name,
-        name=['rpi_camera_', camera_name, "_container"],
+        name=['rpi_camera_', suffix, "_container"],
         package='rclcpp_components',
         executable='component_container_isolated',
         output='screen',
