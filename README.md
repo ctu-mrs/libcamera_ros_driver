@@ -125,7 +125,7 @@ amd64 is convenient for development. Built and tested against **ROS 2 Jazzy**.
 ### Single camera
 
 ```bash
-ros2 launch libcamera_ros_driver camera.launch.py camera_name:=front
+ros2 launch libcamera_ros_driver camera.launch.py prefix:=front
 # then verify:
 ros2 topic hz /uav1/rpi_camera_front/image_raw
 ```
@@ -140,9 +140,9 @@ different camera:
 
 ```bash
 ros2 launch libcamera_ros_driver camera.launch.py \
-  camera_name:=front custom_config:=/abs/path/camera_left.yaml
+  prefix:=left custom_config:=/abs/path/camera_left.yaml
 ros2 launch libcamera_ros_driver camera.launch.py \
-  camera_name:=back  custom_config:=/abs/path/camera_right.yaml
+  prefix:=right  custom_config:=/abs/path/camera_right.yaml
 ```
 
 > You cannot acquire the **same physical camera** from two processes, each launch must
