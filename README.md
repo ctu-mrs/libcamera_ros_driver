@@ -167,25 +167,7 @@ custom_config (per-camera)  >  config/default.yaml  >  launch-file ROS params (f
 `custom_config` is loaded *before* `default.yaml`, so it only needs the keys that differ
 (typically the sensor selection and per-camera tweaks); everything else falls through.
 
-### Key parameters
-
-| Parameter | Default | Notes |
-|---|---|---|
-| `stream_role` | `video` | `[raw, still, video, viewfinder]`. Use **`video`**, it's the role that yields a node-consumable format on this sensor. (`raw` exposes only packed formats this node can't decode.) |
-| `pixel_format` | `R8` | On the OV9281 (10-bit mono) every mono request is **promoted to R16** by the pipeline, mono is treated as raw, and the sensor has no 8-bit mode. So you get MONO16 regardless. |
-| `resolution/{width,height}` | `1280×800` | sensor native |
-| `use_ros_time` | `true` | stamp on ROS clock (keeps cross-process stamps comparable) |
-| **`publish_mono8`** | `true` | **Narrow MONO16 → MONO8 before publishing.** Halves payload, transport, and the subscriber's copy. Lossy (drops the low bits feature trackers ignore). Only acts on a mono16 source. |
-| **`mono8_shift`** | `8` | Bits shifted right when narrowing. PiSP packs samples **MSB-aligned**, so `8` (top byte) is correct. **Image too dark/bright → tune this** (no rebuild). Clamped to `[0,15]`. |
-| **`dmabuf_sync`** | `true` | Cache invalidate/flush around the CPU read. Required for non-coherent buffers; on the Pi 5 the buffers are coherent, so `false` is safe **if the image stays clean** and saves a little CPU. |
-| `control/fps` | `60` | sets `FrameDurationLimits = 1e6/fps` µs. Keep `exposure_time` below the frame period or fps silently drops. |
-| `control/ae_enable` | - | **`false`** recommended for VIO / VI-SLAM (constant exposure). |
-| `control/awb_enable` | - | **`false`** (pointless on a mono sensor). |
-| `control/exposure_time` | - | µs, fixed when AE off. Too short → black image. |
-| `control/analogue_gain` | - | fixed gain when AE off; raise if the image is dark. |
-
-The full set of libcamera control parameters (brightness, sharpness, gains, metering, …) is
-documented inline in [`config/default.yaml`](config/default.yaml).
+The full set of libcamera control parameters is documented inline in [`config/default.yaml`](config/default.yaml).
 
 ---
 

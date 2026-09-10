@@ -1,5 +1,4 @@
 libcamera_ros_driver:
-
   ## --------------------------------------------------------------
   ## |                    compulsory parameters                   #
   ## --------------------------------------------------------------
@@ -15,22 +14,22 @@ libcamera_ros_driver:
   #   if you want to be really sure to use a specific camera, you can use the full device tree path (such as /base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60)
   camera_name: ""
 
-  stream_role: "still" # [raw, still, video, viewfinder]
+  # This defines how the camera will be used. It influences the available pixel formats, resolution, etc.
+  # 'video' or 'raw' are most likely to support formats you care about.
+  stream_role: "video" # [raw, still, video, viewfinder]
 
-  # Available output formats (camera-offered AND driver-supported) with per-pixel cost.
-  # Fewer bytes/pixel => less CPU on the per-frame copy and less bandwidth on the wire.
-  # NOTE: ov9281 is a 10-bit MONO sensor. On the Pi5/PiSP pipeline, R8 is silently
-  #       promoted to R16 (10-bit sensor data unpacked into 16-bit). See "Stream
-  #       configuration adjusted" in the startup log to confirm what was negotiated.
-  # docs: https://libcamera.org/api-html/build_2include_2libcamera_2formats_8h_source.html
-  pixel_format: "RGB888"    # 3 B/px -> BGR8 ; ISP gamma-corrected, display-ready, highest CPU
-  # pixel_format: "BGR888"    # 3 B/px -> RGB8 ; ISP gamma-corrected, display-ready
-  # pixel_format: "YUYV"      # 2 B/px -> YUV422 ; Y plane is gamma-corrected 8-bit gray (display-ready, low CPU)
-  # pixel_format: "R16"       # 2 B/px -> MONO16 ; LINEAR 10-bit data (looks dark in MONO16 viewers; ideal for algorithms)
-  # pixel_format: "R8"        # 1 B/px -> MONO8 ; lowest CPU, but PiSP promotes it to R16 on this sensor
-  # pixel_format: "XRGB8888"  # 4 B/px -> BGRA8 ; highest CPU
-  # pixel_format: "SRGGB8"    # 1 B/px -> raw Bayer8  (not meaningful on a mono sensor)
-  # pixel_format: "SRGGB16"   # 2 B/px -> raw Bayer16 (not meaningful on a mono sensor)
+  # List of common pixel formats. All supported formats will be printed in the startup log.
+  # Note that on RPi5, the image processing pipeline will silently change 8-bit pixel formats to 16 bit (see https://forums.raspberrypi.com/viewtopic.php?t=381311),
+  # so even if you select R8 on a 8-bit mono sensor, you will get R16 on the topic. To avoid confusion it is recommended to just use R16 instead of R8.
+  # alternatively you can use the "publish_mono8" option below to narrow the R16 down to R8 in the driver, before publishing.
+  pixel_format: "RGB888"
+  # pixel_format: "BGR888"
+  # pixel_format: "YUYV"
+  # pixel_format: "R16"       # MONO16
+  # pixel_format: "R8"        # MONO8
+  # pixel_format: "XRGB8888"
+  # pixel_format: "SRGGB8"
+  # pixel_format: "SRGGB16"
 
   resolution:
     width: 1280
@@ -38,14 +37,11 @@ libcamera_ros_driver:
 
   use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
 
-  # Narrow a MONO16 source (R16) down to MONO8 in the driver, BEFORE publishing. Halves the
-  # serialized payload / wire bandwidth / subscriber copy -- the only byte reduction possible
-  # on this sensor, since mono is forced to raw R16 by the pipeline (R8 is promoted, see above).
-  # Only takes effect when the negotiated encoding is mono16 (otherwise ignored with a warning).
-  # Lossy: drops the low bits the 8-bit consumer ignores anyway (fine for VIO/feature tracking).
-  publish_mono8: true
-  mono8_shift: 8 # bits to shift right when narrowing.
-                 # Image too dark/bright? This is the knob (no rebuild needed).
+  # Narrow a MONO16 source (R16) down to MONO8 before publishing. This reduces the amount of data on the topic, but might actually increase CPU usage depending
+  # on how you use this driver. In case you are mounting your application and this driver into the same container, it will be significantly faster to just output MONO16.
+  # Narrowing is performed by shifting the pixel values by mono8_shift bits to the right, which can cause data loss. Be careful when using this option and measure if you actually need it.
+  publish_mono8: false
+  mono8_shift: 8
 
   # dmabuf cache invalidate/flush around each frame's CPU read. Required for correct reads of
   # NON-coherent capture buffers. If the Pi's buffers are coherent, this is pure CPU overhead
