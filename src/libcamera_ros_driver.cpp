@@ -231,7 +231,6 @@ namespace libcamera_ros_driver
     std::string stream_role;
     std::string pixel_format;
     std::string calib_url;
-    int camera_id;
     int resolution_width;
     int resolution_height;
 
@@ -241,7 +240,6 @@ namespace libcamera_ros_driver
     param_loader.setPrefix("libcamera_ros_driver/");
 
     param_loader.loadParam("camera_name", camera_name);
-    param_loader.loadParam("camera_id", camera_id);
     param_loader.loadParam("stream_role", stream_role);
     param_loader.loadParam("pixel_format", pixel_format);
     param_loader.loadParam("resolution/width", resolution_width);
@@ -268,66 +266,41 @@ namespace libcamera_ros_driver
       exit(1);
     }
 
-    // When camera name is specified, the camera id is automatically extracted.
-    // This only works if the cameras have unique IDs.
-    // When using two identical cameras, define them like this in /boot/firmware/config.txt
-    //
-    // dtoverlay=ov9281
-    // dtoverlay=ov9281,cam0
-    // dtoverlay=ov9281,cam1
-    //
-    // ... this will make them have a unique ID.
-    // Then do `sudo rpicam-hello --list-cameras` and you will get two unique IDs, like:
-    //
-    // /base/axi/pcie@120000/rp1/i2c@80000/ov9281@60
-    // /base/axi/pcie@120000/rp1/i2c@88000/ov9281@60
-
-    if (!camera_name.empty())
+    // Print a list of available cameras and their device tree paths (such as /base/axi/pcie@1000120000/rp1/i2c@80000/ov9281@60)
+    RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
+    for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
     {
+      auto camera = camera_manager_->cameras().at(i);
+      auto msg = std::format("  {}: {}", i, camera->id());
 
-      std::vector<std::string> available_cameras;
+      RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
+    }
 
-      RCLCPP_INFO_STREAM(this_node().get_logger(), "Available cameras:");
-
-      for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
+    int camera_index = -1;
+    for (size_t i = 0; i < camera_manager_->cameras().size(); i++)
+    {
+      auto camera = camera_manager_->cameras().at(i);
+      if (camera->id().find(camera_name) != std::string::npos)
       {
-        available_cameras.push_back(camera_manager_->cameras().at(i)->id());
-      }
-
-      for (size_t i = 0; i < available_cameras.size(); i++)
-      {
-
-        if (available_cameras.at(i).find(camera_name) != std::string::npos)
-        {
-          RCLCPP_INFO_STREAM(this_node().get_logger(), "found camera: " << camera_name << " index: " << i << " at: " << available_cameras.at(i));
-          camera_id = i;
-          break;
-        }
+        auto msg = std::format("Found camera '{}'. Device tree path: {}", camera_name, camera->id());
+        RCLCPP_INFO_STREAM(this_node().get_logger(), msg);
+        camera_index = i;
+        break;
       }
     }
 
-    if (camera_id >= int(camera_manager_->cameras().size()))
+    if (camera_index == -1)
     {
-      RCLCPP_INFO_STREAM(this_node().get_logger(), *camera_manager_);
-      RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with id " << camera_name << " does not exist");
+      auto msg = std::format("Camera name '{}' does not exist!", camera_name);
+      RCLCPP_ERROR_STREAM(this_node().get_logger(), msg);
       rclcpp::shutdown();
       exit(1);
     }
 
-    camera_ = camera_manager_->cameras().at(camera_id);
-    RCLCPP_INFO_STREAM(this_node().get_logger(), "Use camera by id: " << camera_id);
-
-    if (!camera_)
-    {
-      RCLCPP_INFO_STREAM(this_node().get_logger(), *camera_manager_);
-      RCLCPP_ERROR_STREAM(this_node().get_logger(), "camera with name " << camera_name << " does not exist");
-      rclcpp::shutdown();
-      exit(1);
-    }
-
+    camera_ = camera_manager_->cameras().at(camera_index);
     if (camera_->acquire())
     {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to acquire camera");
+      RCLCPP_ERROR(node_->get_logger(), "Failed to acquire camera. If you have multiple cameras check if camera_name is unique.");
       rclcpp::shutdown();
       return;
     }

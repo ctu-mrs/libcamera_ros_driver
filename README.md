@@ -125,7 +125,7 @@ amd64 is convenient for development. Built and tested against **ROS 2 Jazzy**.
 ### Single camera
 
 ```bash
-ros2 launch libcamera_ros_driver camera.launch.py camera_name:=front
+ros2 launch libcamera_ros_driver camera.launch.py prefix:=front
 # then verify:
 ros2 topic hz /uav1/rpi_camera_front/image_raw
 ```
@@ -140,9 +140,9 @@ different camera:
 
 ```bash
 ros2 launch libcamera_ros_driver camera.launch.py \
-  camera_name:=front custom_config:=/abs/path/camera_left.yaml
+  prefix:=left custom_config:=/abs/path/camera_left.yaml
 ros2 launch libcamera_ros_driver camera.launch.py \
-  camera_name:=back  custom_config:=/abs/path/camera_right.yaml
+  prefix:=right  custom_config:=/abs/path/camera_right.yaml
 ```
 
 > You cannot acquire the **same physical camera** from two processes, each launch must
@@ -155,28 +155,6 @@ ros2 launch libcamera_ros_driver stereo.launch.py \
   left_name:=front  left_custom_config:=/abs/path/camera_left.yaml  left_calib_url:="file:///abs/path/front_calib.yaml" \
   right_name:=back  right_custom_config:=/abs/path/camera_right.yaml right_calib_url:="file:///abs/path/back_calib.yaml"
 ```
-
-### Selecting which sensor a node uses
-
-By index:
-
-```yaml
-libcamera_ros_driver:
-  camera_name: ""   # empty disables name matching
-  camera_id: 0      # 0 / 1
-```
-
-or by the unique i2c path (robust across reboots; see the `dtoverlay ...,cam0/cam1` setup
-in `/boot/firmware/config.txt`):
-
-```yaml
-libcamera_ros_driver:
-  camera_name: "i2c@80000"   # / "i2c@88000"
-```
-
-Minimal per-camera overrides ship as `config/camera_left.yaml` / `config/camera_right.yaml`.
-
----
 
 ## Configuration
 
