@@ -72,7 +72,7 @@ namespace
     return std::chrono::duration<double, std::milli>(t1 - t0).count();
   }
 
-  // MONO16 -> MONO8 narrowing: mirrors the inner loop of detail::fillImageMsgMono8 (the default
+  // MONO16 -> MONO8 narrowing: mirrors the inner loop of detail::fillImageMsgNarrow8 (the default
   // hot path with publish_mono8). Reads n 16-bit samples, writes n 8-bit, shifting right.
   double time_narrow(const uint16_t* src, uint8_t* dst, size_t n, int shift)
   {

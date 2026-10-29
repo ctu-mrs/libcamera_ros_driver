@@ -19,9 +19,6 @@ libcamera_ros_driver:
   stream_role: "video" # [raw, still, video, viewfinder]
 
   # List of common pixel formats. All supported formats will be printed in the startup log.
-  # Note that on RPi5, the image processing pipeline will silently change 8-bit pixel formats to 16 bit (see https://forums.raspberrypi.com/viewtopic.php?t=381311),
-  # so even if you select R8 on a 8-bit mono sensor, you will get R16 on the topic. To avoid confusion it is recommended to just use R16 instead of R8.
-  # alternatively you can use the "publish_mono8" option below to narrow the R16 down to R8 in the driver, before publishing.
   pixel_format: "RGB888"
   # pixel_format: "BGR888"
   # pixel_format: "YUYV"
@@ -36,12 +33,6 @@ libcamera_ros_driver:
     height: 800
 
   use_ros_time: true # if set to true, the time stamps of the output camera images will be expressed in the current ROS time, rather than the time given by the camera sensor
-
-  # Narrow a MONO16 source (R16) down to MONO8 before publishing. This reduces the amount of data on the topic, but might actually increase CPU usage depending
-  # on how you use this driver. In case you are mounting your application and this driver into the same container, it will be significantly faster to just output MONO16.
-  # Narrowing is performed by shifting the pixel values by mono8_shift bits to the right, which can cause data loss. Be careful when using this option and measure if you actually need it.
-  publish_mono8: false
-  mono8_shift: 8
 
   # dmabuf cache invalidate/flush around each frame's CPU read. Required for correct reads of
   # NON-coherent capture buffers. If the Pi's buffers are coherent, this is pure CPU overhead

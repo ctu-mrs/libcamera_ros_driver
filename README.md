@@ -71,7 +71,6 @@ Key properties baked into this flow:
 | **No wasted work** | if `getNumSubscribers()==0`, the frame is dropped before any copy |
 | **Never falls behind** | single-slot **latest-frame-wins**: a stale frame is dropped, never queued |
 | **No silent death** | every request is *always* re-queued (worker, or the camera thread for dropped/error paths); a leaked buffer would silently stop the camera, so this is guarded with `try/catch` + throttled logs |
-| **Half the bytes (opt-in)** | `publish_mono8` narrows the 10-bit-in-16 sensor data to MONO8 in the copy, halving payload/transport |
 
 ### Recommended deployment: single shared container
 

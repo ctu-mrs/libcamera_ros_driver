@@ -2,7 +2,7 @@
 //
 // We cannot construct LibcameraRosDriver itself: its ctor -> initialize() acquires a real
 // camera and exit(1)s without one. So we exercise the *real* per-frame builders the driver
-// runs -- detail::fillImageMsg() (R16 passthrough) and detail::fillImageMsgMono8() (the
+// runs -- detail::fillImageMsg() (R16 passthrough) and detail::fillImageMsgNarrow8() (the
 // default MONO16->MONO8 narrowing) -- and push a built message through a *real* image_transport
 // CameraPublisher/Subscriber, exactly like the driver's publish path. Only the frame is synthetic.
 //
@@ -39,7 +39,7 @@ TEST(Mono8Narrowing, ShiftsAndPacks)
 {
   constexpr uint32_t w = 4, h = 3;
   constexpr uint32_t stride = 16; // bytes per input row > w*2, i.e. 8 px slots, last 4 are padding
-  constexpr int shift = 2;
+  constexpr int shift = 8; // narrowing keeps the top byte
 
   std::vector<uint8_t> raw(static_cast<size_t>(stride) * h, 0xEE); // padding poison
   for (uint32_t y = 0; y < h; ++y)
@@ -50,7 +50,7 @@ TEST(Mono8Narrowing, ShiftsAndPacks)
   }
 
   std_msgs::msg::Header hdr;
-  auto msg = libcamera_ros_driver::detail::fillImageMsgMono8(hdr, w, h, stride, raw.data(), -1, shift);
+  auto msg = libcamera_ros_driver::detail::fillImageMsgNarrow8(hdr, w, h, stride, "mono8", raw.data(), -1);
 
   ASSERT_EQ(msg->encoding, "mono8");
   ASSERT_EQ(msg->step, w);
@@ -74,7 +74,7 @@ TEST(Mono8Narrowing, Shift8TakesTopByteMsbAligned)
   }
 
   std_msgs::msg::Header hdr;
-  auto msg = libcamera_ros_driver::detail::fillImageMsgMono8(hdr, w, h, stride, raw.data(), -1, 8);
+  auto msg = libcamera_ros_driver::detail::fillImageMsgNarrow8(hdr, w, h, stride, "mono8", raw.data(), -1);
 
   ASSERT_EQ(msg->data.size(), static_cast<size_t>(w) * h);
   for (uint32_t i = 0; i < w * h; ++i)
