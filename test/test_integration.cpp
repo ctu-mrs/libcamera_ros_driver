@@ -94,6 +94,12 @@ protected:
       rclcpp::init(0, nullptr);
     node_ = std::make_shared<rclcpp::Node>("frame_roundtrip_test");
   }
+  // Shut down explicitly: leaving it to static destruction at exit makes rmw_zenoh panic
+  void TearDown() override
+  {
+    node_.reset();
+    rclcpp::shutdown();
+  }
   rclcpp::Node::SharedPtr node_;
 };
 
