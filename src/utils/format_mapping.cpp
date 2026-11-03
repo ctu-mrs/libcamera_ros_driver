@@ -61,6 +61,18 @@ FormatType format_type(const libcamera::PixelFormat& pixelformat)
   return FormatType::NONE;
 }
 
+libcamera::PixelFormat get_16bit_variant(const libcamera::PixelFormat& pixelformat)
+{
+  static const std::unordered_map<uint32_t, libcamera::PixelFormat> map_16bit = {
+      {cam::R8.fourcc(), cam::R16},         {cam::SRGGB8.fourcc(), cam::SRGGB16}, {cam::SGRBG8.fourcc(), cam::SGRBG16},
+      {cam::SGBRG8.fourcc(), cam::SGBRG16}, {cam::SBGGR8.fourcc(), cam::SBGGR16},
+  };
+
+  if (map_16bit.count(pixelformat.fourcc()))
+    return map_16bit.at(pixelformat.fourcc());
+  return {};
+}
+
 libcamera::StreamFormats get_common_stream_formats(const libcamera::StreamFormats& formats)
 {
   std::map<libcamera::PixelFormat, std::vector<libcamera::SizeRange>> common_stream_formats;

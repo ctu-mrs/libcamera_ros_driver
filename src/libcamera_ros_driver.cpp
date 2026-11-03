@@ -107,12 +107,10 @@ namespace libcamera_ros_driver
     uint32_t img_width_ = 0;
     uint32_t img_height_ = 0;
     uint32_t img_step_ = 0;
-    uint32_t src_stride_ = 0; // input row stride in bytes (for mono16->mono8 narrowing)
+    uint32_t src_stride_ = 0; // input row stride in bytes (for 16 -> 8 bit narrowing)
 
-    // opt-in: publish MONO8 by narrowing a MONO16 frame. Halves the serialized payload for
-    // consumers (e.g. VIO) that only use 8-bit greyscale. Default off keeps the raw R16 output.
-    bool mono8_ = false;
-    int mono8_shift_ = 8; // PiSP unpacks raw MSB-aligned, so the top byte (>>8) is the image
+    // an 8-bit pixel_format was requested but the pipeline promoted it to 16 bit: narrow it back
+    bool narrow8_ = false;
 
     // dmabuf cache invalidate/flush around the CPU read of each frame. Necessary for correct
     // reads of NON-coherent capture buffers; pure overhead (cache ops over the whole frame) if
@@ -143,7 +141,7 @@ namespace libcamera_ros_driver
     // Frame offload: the libcamera requestCompleted callback runs on the CameraManager's single
     // (per-process, shared in stereo) thread, so doing the per-frame work there serializes both
     // cameras onto one core. We hand the RAW capture buffer to a per-node worker thread, which
-    // does the copy + mono8 narrow + serialize + publish off the camera thread (parallel across
+    // does the copy + 8-bit narrow + serialize + publish off the camera thread (parallel across
     // cameras) and then re-queues the request -- the buffer must stay intact until it has copied.
     // ponytail: single-slot latest-frame-wins. A queue would only add latency for a live camera;
     // a superseded frame's request is re-queued immediately so its buffer is never leaked.
@@ -245,9 +243,6 @@ namespace libcamera_ros_driver
     param_loader.loadParam("resolution/width", resolution_width);
     param_loader.loadParam("resolution/height", resolution_height);
     param_loader.loadParam("use_ros_time", _use_ros_time_);
-    param_loader.loadParam("publish_mono8", mono8_, false);
-    param_loader.loadParam("mono8_shift", mono8_shift_, 8);
-    mono8_shift_ = std::clamp(mono8_shift_, 0, 15); // a uint16 shift outside [0,15] is UB
     param_loader.loadParam("dmabuf_sync", dmabuf_sync_, true);
 
     if (!param_loader.loadedSuccessfully())
@@ -498,16 +493,15 @@ namespace libcamera_ros_driver
     src_stride_ = scfg.stride;
     img_step_ = scfg.stride;
 
-    // mono8 narrowing only applies to a 16-bit mono source; otherwise fall back to passthrough
-    if (mono8_ && encoding_ == "mono16")
+    // An 8-bit format promoted to its 16-bit container (e.g. R8 -> R16 on the RPi5) is narrowed back,
+    // so the topic carries the format that was asked for.
+    if (scfg.pixelFormat != selected_scfg.pixelFormat && scfg.pixelFormat == get_16bit_variant(selected_scfg.pixelFormat))
     {
-      encoding_ = "mono8";
-      img_step_ = img_width_; // 1 byte/pixel, tightly packed
-      RCLCPP_INFO_STREAM(node_->get_logger(), "publish_mono8: narrowing MONO16 -> MONO8 (shift " << mono8_shift_ << ")");
-    } else if (mono8_)
-    {
-      mono8_ = false;
-      RCLCPP_WARN_STREAM(node_->get_logger(), "publish_mono8 requested but source encoding is '" << encoding_ << "', not mono16; publishing unchanged");
+      narrow8_ = true;
+      encoding_ = get_ros_encoding(selected_scfg.pixelFormat);
+      img_step_ = img_width_;
+      RCLCPP_INFO_STREAM(node_->get_logger(), "Requested " << selected_scfg.pixelFormat << " was promoted to " << scfg.pixelFormat << ", narrowing it back to "
+                                                           << encoding_ << " (top byte)");
     }
 
     if (!dmabuf_sync_)
@@ -872,7 +866,7 @@ namespace libcamera_ros_driver
 
   /* publishLoop() //{ */
 
-  // Drains the single-slot handoff and runs the heavy per-frame work (copy + mono8 narrow +
+  // Drains the single-slot handoff and runs the heavy per-frame work (copy + 8-bit narrow +
   // serialize + publish) off the shared camera thread. Re-queues the request as soon as the
   // buffer has been copied, so capture continues while we serialize/publish.
   void LibcameraRosDriver::publishLoop()
@@ -895,8 +889,8 @@ namespace libcamera_ros_driver
       std::unique_ptr<sensor_msgs::msg::Image> img;
       try
       {
-        img = mono8_ ? detail::fillImageMsgMono8(f.hdr, img_width_, img_height_, src_stride_, f.data, f.fd, mono8_shift_)
-                     : detail::fillImageMsg(f.hdr, img_width_, img_height_, img_step_, encoding_, f.data, f.size, f.fd);
+        img = narrow8_ ? detail::fillImageMsgNarrow8(f.hdr, img_width_, img_height_, src_stride_, encoding_, f.data, f.fd)
+                       : detail::fillImageMsg(f.hdr, img_width_, img_height_, img_step_, encoding_, f.data, f.size, f.fd);
       }
       catch (const std::exception& e)
       {
