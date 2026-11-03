@@ -1,8 +1,8 @@
 // Performance gate for the libcamera_ros_driver per-frame work.
 //
-// The CPU-bound work we control per frame is moving one full frame out of the (mmap'd)
-// dmabuf into the outgoing message's std::vector<uint8_t> -- either a plain copy (R16
-// passthrough) or, by default (publish_mono8), a MONO16->MONO8 narrowing pass. These tests
+// The CPU-bound work we control per frame is moving one full frame out of the DMA buffer into the
+// outgoing message's std::vector<uint8_t>. This is either a plain copy or it also includes
+// narrowing from 16-bit to 8-bit pixel format if required. These tests
 // reproduce exactly that memory work in isolation (no camera / ROS node needed, so they run
 // deterministically in CI) and assert:
 //   1. a full-res plain copy fits comfortably inside the 60 Hz per-frame budget,
@@ -72,8 +72,7 @@ namespace
     return std::chrono::duration<double, std::milli>(t1 - t0).count();
   }
 
-  // MONO16 -> MONO8 narrowing: mirrors the inner loop of detail::fillImageMsgNarrow8 (the default
-  // hot path with publish_mono8). Reads n 16-bit samples, writes n 8-bit, shifting right.
+  // Narrowing from 16-bit to 8-bit pixel format
   double time_narrow(const uint16_t* src, uint8_t* dst, size_t n, int shift)
   {
     const auto t0 = Clock::now();
